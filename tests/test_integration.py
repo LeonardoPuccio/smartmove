@@ -154,34 +154,38 @@ class TestSmartMoveIntegration(unittest.TestCase):
     
     def test_cross_scope_hardlinks(self):
         """Test hardlinks that span outside the move scope"""
-        # Create file outside source directory
-        outside_file = self.temp_dir / "outside_scope.txt"
-        outside_file.write_text("Cross-scope content")
-        
-        # Create source directory with hardlink to outside file
-        source_subdir = self.source_dir / "move_this"
-        source_subdir.mkdir()
-        inside_file = source_subdir / "inside_scope.txt"
-        os.link(outside_file, inside_file)
-        
-        # Verify initial hardlink
-        self.assertEqual(outside_file.stat().st_ino, inside_file.stat().st_ino)
-        self.assertEqual(outside_file.stat().st_nlink, 2)
-        
-        # Test cross-filesystem detection
         from cross_filesystem import CrossFilesystemMover
-        cross_mover = CrossFilesystemMover(
-            source_subdir, self.dest_dir / "moved",
-            dry_run=True, quiet=True, dir_manager=None
-        )
-        
-        # Should find both files even though one is outside scope
-        found_hardlinks = cross_mover.find_hardlinks(inside_file)
-        
-        # In a real scenario with memory index, this should find both
-        # In test with temp dirs, we'll verify the mechanism works
-        self.assertIsInstance(found_hardlinks, list)
-        self.assertGreater(len(found_hardlinks), 0)
+    
+        # Mock mount point to use temp directory instead of root
+        with patch.object(CrossFilesystemMover, '_find_mount_point', return_value=self.temp_dir):
+            # Create file outside source directory
+            outside_file = self.temp_dir / "outside_scope.txt"
+            outside_file.write_text("Cross-scope content")
+            
+            # Create source directory with hardlink to outside file
+            source_subdir = self.source_dir / "move_this"
+            source_subdir.mkdir()
+            inside_file = source_subdir / "inside_scope.txt"
+            os.link(outside_file, inside_file)
+            
+            # Verify initial hardlink
+            self.assertEqual(outside_file.stat().st_ino, inside_file.stat().st_ino)
+            self.assertEqual(outside_file.stat().st_nlink, 2)
+            
+            # Test cross-filesystem detection
+            from cross_filesystem import CrossFilesystemMover
+            cross_mover = CrossFilesystemMover(
+                source_subdir, self.dest_dir / "moved",
+                dry_run=True, quiet=True, dir_manager=None
+            )
+            
+            # Should find both files even though one is outside scope
+            found_hardlinks = cross_mover.find_hardlinks(inside_file)
+            
+            # In a real scenario with memory index, this should find both
+            # In test with temp dirs, we'll verify the mechanism works
+            self.assertIsInstance(found_hardlinks, list)
+            self.assertGreater(len(found_hardlinks), 0)
     
     def test_mount_point_detection_integration(self):
         """Test mount point detection in integration context"""

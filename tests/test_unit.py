@@ -9,6 +9,7 @@ import shutil
 import tempfile
 import unittest
 from pathlib import Path
+import subprocess
 from unittest.mock import patch, MagicMock
 
 from directory_manager import DirectoryManager
@@ -240,7 +241,140 @@ class TestCrossFilesystemMover(unittest.TestCase):
                 success = real_mover.create_hardlink(primary_file, dest_link, source_file)
                 
                 self.assertTrue(success)
-                mock_create.assert_called_once_with(source_file, dest_link)
+                mock_create.assert_called_once_with(source_file, dest_link, None)
+
+    def test_create_hardlink_success(self):
+        """Test successful hardlink creation"""
+        primary_file = self.dest_dir / "primary.txt"
+        primary_file.write_text("content")
+        dest_link = self.dest_dir / "hardlink.txt"
+        source_file = self.source_dir / "source.txt"
+        source_file.write_text("content")
+        
+        real_mover = CrossFilesystemMover(
+            self.source_dir, self.dest_dir, 
+            dry_run=False, quiet=True, dir_manager=DirectoryManager(dry_run=False)
+        )
+        
+        success = real_mover.create_hardlink(primary_file, dest_link, source_file)
+        
+        self.assertTrue(success)
+        self.assertTrue(dest_link.exists())
+        self.assertEqual(primary_file.stat().st_ino, dest_link.stat().st_ino)
+
+    def test_create_hardlink_non_cross_device_error(self):
+        """Test hardlink creation with non-cross-device OSError"""
+        primary_file = self.dest_dir / "primary.txt"
+        primary_file.write_text("content")
+        dest_link = self.dest_dir / "hardlink.txt"
+        source_file = self.source_dir / "source.txt"
+        source_file.write_text("content")
+        
+        real_mover = CrossFilesystemMover(
+            self.source_dir, self.dest_dir, 
+            dry_run=False, quiet=True, dir_manager=DirectoryManager(dry_run=False)
+        )
+        
+        # Mock os.link to raise non-cross-device error
+        with patch('os.link', side_effect=OSError(13, "Permission denied")):
+            success = real_mover.create_hardlink(primary_file, dest_link, source_file)
+            
+            self.assertFalse(success)
+
+    def test_create_hardlink_final_path_logging(self):
+        """Test that final path is logged correctly"""
+        primary_file = self.dest_dir / "primary.txt"
+        primary_file.write_text("content")
+        dest_link = self.dest_dir / "temp.txt.smartmove_123"
+        final_path = self.dest_dir / "final.txt"
+        source_file = self.source_dir / "source.txt"
+        source_file.write_text("content")
+        
+        real_mover = CrossFilesystemMover(
+            self.source_dir, self.dest_dir, 
+            dry_run=False, quiet=False, dir_manager=DirectoryManager(dry_run=False)
+        )
+        
+        with patch.object(real_mover, '_print_action') as mock_print:
+            success = real_mover.create_hardlink(primary_file, dest_link, source_file, final_path)
+            
+            self.assertTrue(success)
+            # Should log final_path, not dest_link
+            mock_print.assert_called_once()
+            call_args = mock_print.call_args[0][0]
+            self.assertIn(str(final_path), call_args)
+            self.assertNotIn("smartmove_123", call_args)
+
+    def test_space_validation_calculation_failure(self):
+        """Test space validation when source size calculation fails"""
+        # Create mover that will fail during space calculation
+        large_dir = self.source_dir / "large"
+        large_dir.mkdir()
+        
+        with patch('pathlib.Path.rglob', side_effect=PermissionError("Access denied")):
+            with self.assertRaises(RuntimeError) as context:
+                CrossFilesystemMover(
+                    self.source_dir, self.dest_dir,
+                    dry_run=False, quiet=True, dir_manager=DirectoryManager()
+                )
+            
+            self.assertIn("Cannot calculate source size", str(context.exception))
+
+    def test_cross_scope_hardlink_mapping(self):
+        """Test cross-scope hardlink destination mapping"""
+        outside_file = self.temp_dir / "outside_scope.txt"
+        outside_file.write_text("cross-scope content")
+        
+        mover = CrossFilesystemMover(
+            self.source_dir, self.dest_dir / "moved",
+            dry_run=True, quiet=True, dir_manager=DirectoryManager()
+        )
+        
+        # Should map to dest parent directory
+        mapped = mover.map_hardlink_destination(outside_file)
+        expected = self.dest_dir / "outside_scope.txt"
+        
+        self.assertEqual(mapped, expected)
+
+    def test_atomic_operation_partial_failure(self):
+        """Test atomic operation cleanup on partial failure"""
+        # Create test file with hardlinks
+        test_file = self.source_dir / "test.txt"
+        test_file.write_text("content")
+        link_file = self.source_dir / "link.txt"
+        os.link(test_file, link_file)
+        
+        real_mover = CrossFilesystemMover(
+            self.source_dir, self.dest_dir,
+            dry_run=False, quiet=True, dir_manager=DirectoryManager(dry_run=False)
+        )
+        
+        # Mock find_hardlinks to return both files
+        with patch.object(real_mover, 'find_hardlinks', return_value=[test_file, link_file]):
+            # Mock create_hardlink to fail on second call
+            with patch.object(real_mover, 'create_hardlink', side_effect=[True, False]):
+                with patch.object(real_mover, 'create_file', return_value=True):
+                    # Should fail and cleanup temp files
+                    success = real_mover.move_hardlink_group(test_file, self.dest_dir / "moved.txt")
+                    
+                    self.assertFalse(success)
+                    # Verify no temp files left behind
+                    temp_files = list(self.dest_dir.glob("*.smartmove_*"))
+                    self.assertEqual(len(temp_files), 0)
+
+    def test_hardlink_detection_timeout(self):
+        """Test hardlink detection timeout handling"""
+        mover = CrossFilesystemMover(
+            self.source_dir, self.dest_dir,
+            dry_run=True, quiet=True, dir_manager=DirectoryManager()
+        )
+        
+        # Mock subprocess to timeout
+        with patch('subprocess.run', side_effect=subprocess.TimeoutExpired(['find'], 300)):
+            with self.assertRaises(RuntimeError) as context:
+                mover._build_hardlink_index()
+            
+            self.assertIn("Hardlink detection failed", str(context.exception))
     
     def test_move_hardlink_group_skips_processed_inodes(self):
         """Test that already processed inodes are skipped"""
@@ -325,8 +459,14 @@ class TestPerformanceOptimizations(unittest.TestCase):
         """Test that memory index avoids repeated subprocess calls"""
         temp_dir = Path(tempfile.mkdtemp())
         try:
+            # Create source and dest directories first
+            source_dir = temp_dir / "source"
+            dest_dir = temp_dir / "dest"
+            source_dir.mkdir()
+            dest_dir.mkdir()
+            
             mover = CrossFilesystemMover(
-                temp_dir / "source", temp_dir / "dest",
+                source_dir, dest_dir,
                 dry_run=True, quiet=True
             )
             

@@ -2,7 +2,6 @@
 Cross-Filesystem Mover
 
 Handles cross-filesystem moves with hardlink preservation.
-Optimized with mount point detection and memory index for hardlinks.
 """
 
 import os
@@ -26,9 +25,42 @@ class CrossFilesystemMover:
         self.moved_inodes = set()
         self.inode_link_counts = {}
         self.source_root = self._find_mount_point(self.source_path)
-        self.hardlink_index = None  # Built on first use
+        self.hardlink_index = None
+        
+        # Validate before starting
+        self._validate_permissions()
+        self._validate_space()
         
         logger.debug(f"Source mount point: {self.source_root}")
+    
+    def _validate_permissions(self):
+        """Check read/write permissions before operation"""
+        if not os.access(self.source_path, os.R_OK):
+            raise PermissionError(f"Cannot read source: {self.source_path}")
+        
+        dest_check = self.dest_path.parent
+        while not dest_check.exists() and dest_check.parent != dest_check:
+            dest_check = dest_check.parent
+        
+        if not os.access(dest_check, os.W_OK):
+            raise PermissionError(f"Cannot write to destination: {dest_check}")
+    
+    def _validate_space(self):
+        """Check available disk space before operation"""
+        if self.source_path.is_file():
+            source_size = self.source_path.stat().st_size
+        else:
+            try:
+                source_size = sum(f.stat().st_size for f in self.source_path.rglob('*') if f.is_file())
+            except (OSError, PermissionError) as e:
+                raise RuntimeError(f"Cannot calculate source size for space validation: {e}")
+        
+        try:
+            dest_free = shutil.disk_usage(self.dest_path.parent).free
+            if source_size > dest_free * 0.9:  # 10% buffer
+                raise ValueError(f"Insufficient space: need {source_size:,} bytes, have {dest_free:,} available")
+        except OSError as e:
+            raise RuntimeError(f"Cannot check destination space: {e}")
     
     def _print_action(self, message):
         """Print action with timestamp unless quiet mode"""
@@ -41,63 +73,60 @@ class CrossFilesystemMover:
         path = os.path.realpath(path)
         while not os.path.ismount(path):
             parent = os.path.dirname(path)
-            if parent == path:  # Reached root
+            if parent == path:
                 break
             path = parent
         return Path(path)
     
     def _build_hardlink_index(self):
-        """Build memory index of all hardlinks in source filesystem"""
+        """Build memory index of hardlinks using find command"""
         if self.hardlink_index is not None:
-            return  # Already built
+            return
         
         logger.debug(f"Building hardlink index for {self.source_root}")
         self.hardlink_index = {}
         
         try:
-            # Single scan to find all hardlinked files
             result = subprocess.run(
                 ['find', str(self.source_root), '-xdev', '-type', 'f', '-links', '+1', '-printf', '%i %p\n'],
-                capture_output=True, text=True, timeout=300, check=False
+                capture_output=True, text=True, timeout=300, check=True
             )
             
-            if result.returncode == 0:
-                for line in result.stdout.strip().split('\n'):
-                    if not line.strip():
-                        continue
-                    
-                    parts = line.strip().split(' ', 1)
-                    if len(parts) == 2:
+            for line in result.stdout.strip().split('\n'):
+                if not line.strip():
+                    continue
+                
+                parts = line.strip().split(' ', 1)
+                if len(parts) == 2:
+                    try:
                         inode = int(parts[0])
                         file_path = Path(parts[1])
                         
                         if inode not in self.hardlink_index:
                             self.hardlink_index[inode] = []
                         self.hardlink_index[inode].append(file_path)
-                
-                hardlink_groups = len(self.hardlink_index)
-                total_hardlinked_files = sum(len(paths) for paths in self.hardlink_index.values())
-                logger.debug(f"Indexed {hardlink_groups} hardlink groups ({total_hardlinked_files} files)")
-            else:
-                logger.warning(f"Failed to build hardlink index: {result.stderr}")
-                self.hardlink_index = {}
-                
-        except (subprocess.TimeoutExpired, OSError) as e:
-            logger.warning(f"Could not build hardlink index: {e}")
-            self.hardlink_index = {}
+                    except (ValueError, OSError):
+                        continue
+            
+            hardlink_groups = len(self.hardlink_index)
+            total_hardlinked_files = sum(len(paths) for paths in self.hardlink_index.values())
+            logger.debug(f"Indexed {hardlink_groups} hardlink groups ({total_hardlinked_files} files)")
+            
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as e:
+            raise RuntimeError(f"Hardlink detection failed - tool cannot preserve hardlinks: {e}")
 
     def find_hardlinks(self, file_path):
-        """Find all hardlinks using pre-built memory index"""
+        """Find all hardlinks for file using memory index"""
         try:
             file_stat = file_path.stat()
             
+            # Build index only when hardlinks detected
             if file_stat.st_nlink <= 1:
                 return [file_path]
             
-            # Build index on first use
-            self._build_hardlink_index()
+            if self.hardlink_index is None:
+                self._build_hardlink_index()
             
-            # O(1) lookup from memory index
             inode = file_stat.st_ino
             hardlinks = self.hardlink_index.get(inode, [file_path])
             
@@ -111,14 +140,16 @@ class CrossFilesystemMover:
             return [file_path]
     
     def map_hardlink_destination(self, source_hardlink):
-        """Map hardlink destination path"""
+        """Map hardlink destination path, handling cross-scope hardlinks"""
         try:
+            # Standard case: hardlink within source directory
             rel_path = source_hardlink.relative_to(self.source_path)
             return self.dest_path / rel_path
         except ValueError:
+            # Cross-scope case: hardlink exists outside source directory
             return self.dest_path.parent / source_hardlink.name
     
-    def create_file(self, source_file, dest_file):
+    def create_file(self, source_file, dest_file, final_path=None):
         """Create file at destination via copy"""
         try:
             self.dir_manager.ensure_directory(dest_file.parent)
@@ -133,34 +164,39 @@ class CrossFilesystemMover:
                 except PermissionError:
                     logger.debug(f"Could not preserve ownership for {dest_file}")
             
+            # Log final path, not temp path
+            display_path = final_path if final_path else dest_file
             action = "Would create" if self.dry_run else "✓ Created"
-            self._print_action(f"{action}: {dest_file}")
+            self._print_action(f"{action}: {display_path}")
             return True
             
         except Exception as e:
             logger.error(f"Copy failed: {source_file} → {dest_file}: {e}")
             return False
     
-    def create_hardlink(self, primary_dest_file, dest_hardlink, source_file):
+    def create_hardlink(self, primary_dest_file, dest_hardlink, source_file, final_path=None):
         """Create hardlink to existing destination file"""
         try:
             self.dir_manager.ensure_directory(dest_hardlink.parent)
             
             if not self.dry_run:
                 os.link(primary_dest_file, dest_hardlink)
+            
+            # Log final path, not temp path
+            display_path = final_path if final_path else dest_hardlink
             action = "Would link" if self.dry_run else "✓ Linked"
-            self._print_action(f"{action}: {dest_hardlink}")
+            self._print_action(f"{action}: {display_path}")
             return True
         except OSError as e:
             if e.errno == 18:  # Cross-device fallback
                 logger.debug(f"Cross-device hardlink failed, copying {dest_hardlink.name}")
-                return self.create_file(source_file, dest_hardlink)
+                return self.create_file(source_file, dest_hardlink, final_path)
             else:
                 logger.error(f"Hardlink creation failed: {dest_hardlink}: {e}")
                 return False
     
     def move_hardlink_group(self, source_file, dest_file):
-        """Move file and recreate all its hardlinks at destination"""
+        """Move file and recreate hardlinks atomically"""
         file_stat = source_file.stat()
         
         if file_stat.st_ino in self.moved_inodes:
@@ -173,34 +209,56 @@ class CrossFilesystemMover:
         logger.debug(f"{message}: {source_file}")
         hardlinks = self.find_hardlinks(source_file)
         
-        if len(hardlinks) > 1:          
-            # Create primary file
-            if not self.create_file(source_file, dest_file):
-                return False
+        if len(hardlinks) > 1:
+            # Create all files with temp names first
+            temp_suffix = f".smartmove_{os.getpid()}"
+            temp_files = []
             
-            successful_links = [source_file]
-            
-            # Create hardlinks for other instances
-            for hardlink in hardlinks:
-                if hardlink != source_file:
-                    dest_hardlink = self.map_hardlink_destination(hardlink)
-                    
-                    if self.create_hardlink(dest_file, dest_hardlink, hardlink):
-                        successful_links.append(hardlink)
-            
-            # Remove originals after successful recreation
-            if len(successful_links) == len(hardlinks):
-                for link in successful_links:
+            try:
+                # Create primary file
+                temp_dest = dest_file.with_suffix(dest_file.suffix + temp_suffix)
+                if not self.create_file(source_file, temp_dest, dest_file):
+                    return False
+                temp_files.append((temp_dest, dest_file))
+                
+                # Create hardlinks for other instances
+                for hardlink in hardlinks:
+                    if hardlink != source_file:
+                        dest_hardlink = self.map_hardlink_destination(hardlink)
+                        temp_hardlink = dest_hardlink.with_suffix(dest_hardlink.suffix + temp_suffix)
+                        
+                        if self.create_hardlink(temp_dest, temp_hardlink, hardlink, dest_hardlink):
+                            temp_files.append((temp_hardlink, dest_hardlink))
+                        else:
+                            raise RuntimeError(f"Failed to create hardlink: {temp_hardlink}")
+                
+                # Atomic rename all files
+                if not self.dry_run:
+                    for temp_file, final_file in temp_files:
+                        temp_file.rename(final_file)
+                
+                # Remove sources after successful destination creation
+                for link in hardlinks:
                     if not self.dry_run:
                         link.unlink()
                     self._print_action(f"Would remove: {link}" if self.dry_run else f"✓ Removed: {link}")
+                
                 self.moved_inodes.add(file_stat.st_ino)
                 return True
-            else:
-                logger.error(f"Incomplete hardlink recreation: {len(successful_links)}/{len(hardlinks)}")
+                
+            except Exception as e:
+                # Cleanup temp files on failure
+                if not self.dry_run:
+                    for temp_file, _ in temp_files:
+                        try:
+                            temp_file.unlink()
+                        except FileNotFoundError:
+                            pass
+                logger.error(f"Atomic operation failed: {e}")
                 return False
+                
         else:
-            # Single file
+            # Single file case
             if self.create_file(source_file, dest_file):
                 if not self.dry_run:
                     source_file.unlink()
