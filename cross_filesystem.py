@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 class CrossFilesystemMover:
     """Handles cross-filesystem moves with hardlink preservation"""
     
-    def __init__(self, source_path, dest_path, dry_run=False, quiet=False, dir_manager=None):
+    def __init__(self, source_path, dest_path, dry_run=False, quiet=False, dir_manager=None, comprehensive_scan=False):
         self.source_path = source_path
         self.dest_path = dest_path
         self.dry_run = dry_run
@@ -25,13 +25,15 @@ class CrossFilesystemMover:
         self.moved_inodes = set()
         self.inode_link_counts = {}
         self.source_root = self._find_mount_point(self.source_path)
+        self.dest_root = self._find_mount_point(self.dest_path)
         self.hardlink_index = None
         
         # Validate before starting
         self._validate_permissions()
         self._validate_space()
         
-        logger.debug(f"Source mount point: {self.source_root}")
+        scan_type = "comprehensive" if comprehensive_scan else "source-filesystem-only"
+        logger.debug(f"Source mount point: {self.source_root}, Dest mount point: {self.dest_root}, scan mode: {scan_type}")
     
     def _validate_permissions(self):
         """Check read/write permissions before operation"""
@@ -83,13 +85,23 @@ class CrossFilesystemMover:
         if self.hardlink_index is not None:
             return
         
-        logger.debug(f"Building hardlink index for {self.source_root}")
+        scan_scope = "all mounted filesystems" if self.comprehensive_scan else f"filesystem {self.source_root}"
+        logger.debug(f"Building hardlink index for {scan_scope}")
         self.hardlink_index = {}
         
         try:
+            # Choose command based on comprehensive_scan flag
+            if self.comprehensive_scan:
+                # Scan all mounted filesystems (slower but comprehensive)
+                cmd = ['find', str(self.source_root), '-type', 'f', '-links', '+1', '-printf', '%i %p\n']
+                logger.info("Using comprehensive scan - may take longer but finds hardlinks across all filesystems")
+            else:
+                # Default: scan only source filesystem (faster)
+                cmd = ['find', str(self.source_root), '-xdev', '-type', 'f', '-links', '+1', '-printf', '%i %p\n']
+                logger.debug("Using source-filesystem-only scan for optimal performance")
+            
             result = subprocess.run(
-                ['find', str(self.source_root), '-xdev', '-type', 'f', '-links', '+1', '-printf', '%i %p\n'],
-                capture_output=True, text=True, timeout=300, check=True
+                cmd, capture_output=True, text=True, timeout=300, check=True
             )
             
             for line in result.stdout.strip().split('\n'):
@@ -110,10 +122,12 @@ class CrossFilesystemMover:
             
             hardlink_groups = len(self.hardlink_index)
             total_hardlinked_files = sum(len(paths) for paths in self.hardlink_index.values())
-            logger.debug(f"Indexed {hardlink_groups} hardlink groups ({total_hardlinked_files} files)")
+            scope_desc = "across all filesystems" if self.comprehensive_scan else "within source filesystem only"
+            logger.debug(f"Indexed {hardlink_groups} hardlink groups ({total_hardlinked_files} files) {scope_desc}")
             
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as e:
-            raise RuntimeError(f"Hardlink detection failed - tool cannot preserve hardlinks: {e}")
+            scan_type = "comprehensive" if self.comprehensive_scan else "source-filesystem-only"
+            raise RuntimeError(f"Hardlink detection failed ({scan_type} scan) - tool cannot preserve hardlinks: {e}")
 
     def find_hardlinks(self, file_path):
         """Find all hardlinks for file using memory index"""
@@ -146,8 +160,9 @@ class CrossFilesystemMover:
             rel_path = source_hardlink.relative_to(self.source_path)
             return self.dest_path / rel_path
         except ValueError:
-            # Cross-scope case: hardlink exists outside source directory
-            return self.dest_path.parent / source_hardlink.name
+            # Cross-scope: preserve original directory structure
+            source_relative = source_hardlink.relative_to(self.source_root)
+            return self.dest_root / source_relative
     
     def create_file(self, source_file, dest_file, final_path=None):
         """Create file at destination via copy"""
@@ -275,7 +290,8 @@ class CrossFilesystemMover:
     
     def move_directory(self):
         """Move directory structure with hardlink preservation"""
-        logger.info(f"Moving directory: {self.source_path} → {self.dest_path}")
+        scan_mode = "comprehensive" if self.comprehensive_scan else "optimized"
+        logger.info(f"Moving directory ({scan_mode} scan): {self.source_path} → {self.dest_path}")
         
         files_processed = 0
         for root, dirs, files in os.walk(self.source_path):

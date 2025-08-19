@@ -8,11 +8,7 @@ Uses mv-like interface with automatic cross-filesystem detection.
 Usage:
     sudo python3 smartmove.py SOURCE DEST [options]
     sudo python3 smartmove.py "/mnt/ssd/movie" "/mnt/hdd/movie" --dry-run
-    sudo python3 smartmove.py "/mnt/ssd/movie" "/mnt/hdd/movie" -p --dry-run
-    
-    # Create symlink for easier usage:
-    sudo ln -s /path/to/smartmove.py /usr/local/bin/smv
-    smv "/mnt/ssd/movie" "/mnt/hdd/movie" --dry-run
+    sudo python3 smartmove.py "/mnt/ssd/movie" "/mnt/hdd/movie" -p --comprehensive
 """
 
 import os
@@ -50,6 +46,11 @@ def main():
         help="Preview actions without executing moves"
     )
     parser.add_argument(
+        "--comprehensive",
+        action="store_true",
+        help="Scan all mounted filesystems for hardlinks (slower, for complex storage setups)"
+    )
+    parser.add_argument(
         "--verbose", 
         action="store_true", 
         help="Enable verbose logging (show process information)"
@@ -82,7 +83,11 @@ def main():
         sys.exit(1)
     
     try:
-        mover = FileMover(args.source, args.dest, args.parents, args.dry_run, args.quiet)
+        mover = FileMover(
+            args.source, args.dest, 
+            args.parents, args.dry_run, args.quiet, 
+            args.comprehensive
+        )
         success = mover.move()
         
         if not success:

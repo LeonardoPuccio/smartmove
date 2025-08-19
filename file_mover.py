@@ -17,13 +17,14 @@ logger = logging.getLogger(__name__)
 class FileMover:
     """Main orchestrator for file moving operations"""
     
-    def __init__(self, source_path, dest_path, create_parents=False, dry_run=False, quiet=False):
+    def __init__(self, source_path, dest_path, create_parents=False, dry_run=False, quiet=False, comprehensive_scan=False):
         self.source_path = Path(source_path)
         self.dest_path = Path(dest_path)
         self.create_parents = create_parents
         self.dry_run = dry_run
         self.quiet = quiet
         self.dir_manager = DirectoryManager(dry_run)
+        self.comprehensive_scan = comprehensive_scan
         
         if not self.source_path.exists():
             raise ValueError(f"Source does not exist: {source_path}")
@@ -92,7 +93,8 @@ class FileMover:
             logger.info("Cross-filesystem operation detected")
             cross_mover = CrossFilesystemMover(
                 self.source_path, self.dest_path, 
-                self.dry_run, self.quiet, self.dir_manager
+                self.dry_run, self.quiet, self.dir_manager,
+                self.comprehensive_scan
             )
             
             if self.source_path.is_file():
