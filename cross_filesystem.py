@@ -5,9 +5,12 @@ Handles cross-filesystem moves with hardlink preservation.
 """
 
 import os
+import sys
 import shutil
 import logging
 import subprocess
+import signal
+import time
 from pathlib import Path
 from datetime import datetime
 
@@ -22,11 +25,20 @@ class CrossFilesystemMover:
         self.dry_run = dry_run
         self.quiet = quiet
         self.dir_manager = dir_manager
+        self.comprehensive_scan = comprehensive_scan
         self.moved_inodes = set()
         self.inode_link_counts = {}
+        
+        # Edge case handling: temp file tracking
+        self.temp_files = set()
+        
+        # Cache both mount points once
         self.source_root = self._find_mount_point(self.source_path)
         self.dest_root = self._find_mount_point(self.dest_path)
         self.hardlink_index = None
+        
+        # Register signal handlers for cleanup
+        self._register_cleanup_handlers()
         
         # Validate before starting
         self._validate_permissions()
@@ -34,6 +46,35 @@ class CrossFilesystemMover:
         
         scan_type = "comprehensive" if comprehensive_scan else "source-filesystem-only"
         logger.debug(f"Source mount point: {self.source_root}, Dest mount point: {self.dest_root}, scan mode: {scan_type}")
+    
+    def _register_cleanup_handlers(self):
+        """Register signal handlers for graceful cleanup"""
+        def cleanup_handler(signum, frame):
+            logger.info(f"Received signal {signum}, cleaning up...")
+            self._cleanup_temp_files()
+            sys.exit(1)
+        
+        signal.signal(signal.SIGINT, cleanup_handler)
+        signal.signal(signal.SIGTERM, cleanup_handler)
+    
+    def _cleanup_temp_files(self):
+        """Clean up any temporary files"""
+        for temp_file in self.temp_files:
+            try:
+                if temp_file.exists():
+                    temp_file.unlink()
+                    logger.debug(f"Cleaned up temp file: {temp_file}")
+            except Exception as e:
+                logger.debug(f"Failed to cleanup {temp_file}: {e}")
+        self.temp_files.clear()
+    
+    def _track_temp_file(self, temp_file):
+        """Track temporary file for cleanup"""
+        self.temp_files.add(temp_file)
+    
+    def _untrack_temp_file(self, temp_file):
+        """Remove file from temp tracking"""
+        self.temp_files.discard(temp_file)
     
     def _validate_permissions(self):
         """Check read/write permissions before operation"""
@@ -48,7 +89,7 @@ class CrossFilesystemMover:
             raise PermissionError(f"Cannot write to destination: {dest_check}")
     
     def _validate_space(self):
-        """Check available disk space before operation"""
+        """Check available disk space using cached destination mount point"""
         if self.source_path.is_file():
             source_size = self.source_path.stat().st_size
         else:
@@ -58,7 +99,7 @@ class CrossFilesystemMover:
                 raise RuntimeError(f"Cannot calculate source size for space validation: {e}")
         
         try:
-            dest_free = shutil.disk_usage(self.dest_path.parent).free
+            dest_free = shutil.disk_usage(self.dest_root).free
             if source_size > dest_free * 0.9:  # 10% buffer
                 raise ValueError(f"Insufficient space: need {source_size:,} bytes, have {dest_free:,} available")
         except OSError as e:
@@ -71,8 +112,15 @@ class CrossFilesystemMover:
             print(f"{timestamp} - {message}")
     
     def _find_mount_point(self, path):
-        """Find mount point for given path"""
-        path = os.path.realpath(path)
+        """Find mount point for given path, handling non-existent paths"""
+        path = Path(path)
+        
+        # Walk up to find existing directory first
+        while not path.exists() and path.parent != path:
+            path = path.parent
+        
+        # Now find mount point from existing path
+        path = os.path.realpath(str(path))
         while not os.path.ismount(path):
             parent = os.path.dirname(path)
             if parent == path:
@@ -165,12 +213,29 @@ class CrossFilesystemMover:
             return self.dest_root / source_relative
     
     def create_file(self, source_file, dest_file, final_path=None):
-        """Create file at destination via copy"""
+        """Create file at destination via copy with retry logic"""
         try:
             self.dir_manager.ensure_directory(dest_file.parent)
             
             if not self.dry_run:
-                shutil.copy2(source_file, dest_file)
+                # Retry logic for permission errors
+                max_retries = 2
+                for attempt in range(max_retries):
+                    try:
+                        shutil.copy2(source_file, dest_file)
+                        break
+                    except PermissionError as e:
+                        if attempt < max_retries - 1:
+                            logger.debug(f"Permission error on attempt {attempt + 1}, retrying: {e}")
+                            time.sleep(0.1)  # Brief delay
+                        else:
+                            raise
+                    except OSError as e:
+                        if e.errno == 28:  # No space left
+                            logger.error(f"Disk space exhausted: {e}")
+                            return False
+                        raise
+                
                 # Preserve ownership and permissions
                 source_stat = source_file.stat()
                 os.chmod(dest_file, source_stat.st_mode)
@@ -190,28 +255,45 @@ class CrossFilesystemMover:
             return False
     
     def create_hardlink(self, primary_dest_file, dest_hardlink, source_file, final_path=None):
-        """Create hardlink to existing destination file"""
+        """Create hardlink to existing destination file with retry logic"""
         try:
             self.dir_manager.ensure_directory(dest_hardlink.parent)
             
             if not self.dry_run:
-                os.link(primary_dest_file, dest_hardlink)
+                # Retry logic for permission errors
+                max_retries = 2
+                for attempt in range(max_retries):
+                    try:
+                        os.link(primary_dest_file, dest_hardlink)
+                        break
+                    except PermissionError as e:
+                        if attempt < max_retries - 1:
+                            logger.debug(f"Permission error on hardlink attempt {attempt + 1}, retrying: {e}")
+                            time.sleep(0.1)
+                        else:
+                            # Fall back to copy
+                            logger.debug(f"Hardlink failed, falling back to copy: {e}")
+                            return self.create_file(source_file, dest_hardlink, final_path)
+                    except OSError as e:
+                        if e.errno == 18:  # Cross-device fallback
+                            logger.debug(f"Cross-device hardlink failed, copying {dest_hardlink.name}")
+                            return self.create_file(source_file, dest_hardlink, final_path)
+                        else:
+                            logger.error(f"Hardlink creation failed: {dest_hardlink}: {e}")
+                            return False
             
             # Log final path, not temp path
             display_path = final_path if final_path else dest_hardlink
             action = "Would link" if self.dry_run else "✓ Linked"
             self._print_action(f"{action}: {display_path}")
             return True
-        except OSError as e:
-            if e.errno == 18:  # Cross-device fallback
-                logger.debug(f"Cross-device hardlink failed, copying {dest_hardlink.name}")
-                return self.create_file(source_file, dest_hardlink, final_path)
-            else:
-                logger.error(f"Hardlink creation failed: {dest_hardlink}: {e}")
-                return False
+            
+        except Exception as e:
+            logger.error(f"Hardlink creation failed: {dest_hardlink}: {e}")
+            return False
     
     def move_hardlink_group(self, source_file, dest_file):
-        """Move file and recreate hardlinks atomically"""
+        """Move file and recreate hardlinks atomically with temp file tracking"""
         file_stat = source_file.stat()
         
         if file_stat.st_ino in self.moved_inodes:
@@ -232,6 +314,9 @@ class CrossFilesystemMover:
             try:
                 # Create primary file
                 temp_dest = dest_file.with_suffix(dest_file.suffix + temp_suffix)
+                if not self.dry_run:
+                    self._track_temp_file(temp_dest)
+                
                 if not self.create_file(source_file, temp_dest, dest_file):
                     return False
                 temp_files.append((temp_dest, dest_file))
@@ -242,6 +327,9 @@ class CrossFilesystemMover:
                         dest_hardlink = self.map_hardlink_destination(hardlink)
                         temp_hardlink = dest_hardlink.with_suffix(dest_hardlink.suffix + temp_suffix)
                         
+                        if not self.dry_run:
+                            self._track_temp_file(temp_hardlink)
+                        
                         if self.create_hardlink(temp_dest, temp_hardlink, hardlink, dest_hardlink):
                             temp_files.append((temp_hardlink, dest_hardlink))
                         else:
@@ -251,6 +339,7 @@ class CrossFilesystemMover:
                 if not self.dry_run:
                     for temp_file, final_file in temp_files:
                         temp_file.rename(final_file)
+                        self._untrack_temp_file(temp_file)
                 
                 # Remove sources after successful destination creation
                 for link in hardlinks:
@@ -266,7 +355,9 @@ class CrossFilesystemMover:
                 if not self.dry_run:
                     for temp_file, _ in temp_files:
                         try:
-                            temp_file.unlink()
+                            if temp_file.exists():
+                                temp_file.unlink()
+                            self._untrack_temp_file(temp_file)
                         except FileNotFoundError:
                             pass
                 logger.error(f"Atomic operation failed: {e}")
