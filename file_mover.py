@@ -20,6 +20,12 @@ class FileMover:
     def __init__(self, source_path, dest_path, create_parents=False, dry_run=False, quiet=False, comprehensive_scan=False):
         self.source_path = Path(source_path)
         self.dest_path = Path(dest_path)
+        
+        # Handle directory destinations
+        if str(dest_path).endswith('/') or (self.dest_path.exists() and self.dest_path.is_dir()):
+            # If destination is a directory, append source filename
+            self.dest_path = self.dest_path / self.source_path.name
+        
         self.create_parents = create_parents
         self.dry_run = dry_run
         self.quiet = quiet
@@ -78,7 +84,7 @@ class FileMover:
             print(f"{timestamp} - DRY RUN - Previewing actions only")
         
         # Create parent directory if needed
-        if self.create_parents:
+        if self.create_parents and not self.dest_path.parent.exists():
             self.dir_manager.ensure_directory(self.dest_path.parent)
             if not self.dry_run:
                 action = "✓ Created parent directory"
