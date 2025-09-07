@@ -6,7 +6,7 @@ Cross-filesystem file mover with hardlink preservation. Moves files and director
 
 - **Hardlink preservation** within source filesystem across filesystem boundaries
 - **Automatic detection** of same vs cross-filesystem moves
-- **Memory-indexed scanning** using `find -xdev -inum` for fast hardlink detection
+- **Memory-indexed scanning** using `find -xdev` for fast hardlink detection
 - **Dry-run mode** for safe preview of operations
 - **Unix-style interface** similar to `mv` command
 - **Proper ownership** and permission preservation
@@ -51,11 +51,13 @@ smv SOURCE DEST [options]
 smv "/mnt/ssd/movie" "/mnt/hdd/movie" --dry-run
 smv "/mnt/ssd/documents" "/mnt/hdd/backup/" -p
 sudo smv "/mnt/fast/media" "/mnt/slow/archive" --verbose
+sudo smv "/mnt/mergefs/dataset" "/mnt/archive" --comprehensive --verbose
 ```
 
 **Options:**
 - `-p, --parents` - Create parent directories as needed
 - `--dry-run` - Preview actions only
+- `--comprehensive` - Scan all mounted filesystems for hardlinks (slower, for complex storage setups)
 - `--verbose` - Show detailed progress
 - `--debug` - Enable debug logging (requires --verbose)
 - `-q, --quiet` - Suppress output except errors
@@ -78,7 +80,7 @@ stat -c "Links: %h" /mnt/hdd20tb/test1/original.txt   # Shows: Links: 1 (hardlin
 # Clean up rsync test
 rm -rf /mnt/hdd20tb/test1 /mnt/hdd20tb/test2
 
-# SmartMove preserves all hardlinks by scanning entire filesystem
+# SmartMove preserves all hardlinks by scanning source filesystem
 smv /mnt/ssd2tb/test1 /mnt/hdd20tb/test1
 stat -c "Links: %h" /mnt/hdd20tb/test2/hardlink.txt  # Shows: Links: 2 (both files moved)
 
@@ -88,8 +90,20 @@ rm -rf /mnt/ssd2tb/test1 /mnt/ssd2tb/test2 /mnt/hdd20tb/test1 /mnt/hdd20tb/test2
 
 **Root cause:** `rsync -H` only preserves hardlinks within the transferred file set, missing hardlinks outside the source directory.
 
+### Scanning Modes
+
+**Default (source-filesystem-only):** Fast scanning within source mount boundaries
+- Optimal for typical single-drive to single-drive moves
+- Uses `find -xdev` for performance
+- Covers 90%+ of use cases
+
+**Comprehensive mode (`--comprehensive`):** Scans all mounted filesystems
+- Required for complex storage setups (e.g., MergerFS pools)
+- Finds hardlinks across multiple drives/storage devices
+- Slower but complete detection
+
 ### MergerFS Compatibility
-SmartMove operates on underlying filesystems. File timestamps may change which version MergerFS displays, but hardlink preservation remains intact.
+SmartMove operates on underlying filesystems. File timestamps may change which version MergerFS displays, but hardlink preservation remains intact. Use `--comprehensive` for complex storage pools or multi-drive setups.
 
 ## Examples
 
@@ -102,15 +116,10 @@ smv "/mnt/ssd/media" "/mnt/hdd/backup/" --dry-run -p
 
 # Large operation with progress
 sudo smv /mnt/fast/dataset /mnt/slow/archive -p --verbose
+
+# Complex storage setup (MergerFS, spanning multiple drives/storage devices)
+sudo smv /mnt/mergefs/dataset /mnt/archive --comprehensive --verbose
 ```
-
-## Current Limitations
-
-- Searches hardlinks within source filesystem boundaries only
-- Uses `find -xdev` for performance (stays within mount points)
-- Cross-scope hardlinks outside source tree may not be detected in complex scenarios
-
-**Planned:** Future versions will include comprehensive filesystem-wide detection options.
 
 ## Requirements
 
@@ -131,6 +140,23 @@ pip install -r requirements-dev.txt
 python3 -m pytest tests/test_unit.py tests/test_integration.py -v  # Fast tests
 sudo .venv/bin/python3 -m pytest tests/test_e2e.py -v  # Real filesystem tests
 ```
+
+### E2E Test Performance
+E2E tests complete in seconds due to:
+- Small loop device filesystems (50MB for standard tests, 4GB for large-scale)
+- Minimal test file sets (standard tests use <1,000 files)
+- Optimized sparse file allocation
+
+Large-scale tests available via:
+```bash
+sudo RUN_LARGE_SCALE_TESTS=1 .venv/bin/python3 -m pytest tests/test_e2e.py -v  # For performance testing
+```
+
+**System Requirements for Large-Scale Tests:**
+- 8GB+ RAM (for filesystem operations)
+- 5GB+ free disk space
+- Modern CPU (may take several minutes on limited hardware)
+- Not recommended for Raspberry Pi or similar constrained systems
 
 ### Test Types
 - **Unit tests** (`test_unit.py`) - Fast, isolated component tests
