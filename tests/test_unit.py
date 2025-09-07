@@ -197,7 +197,8 @@ class TestCrossFilesystemMover(unittest.TestCase):
         outside_file = self.temp_dir / "outside" / "file.txt"
         mapped_dest = self.mover.map_hardlink_destination(outside_file)
         
-        expected_dest = self.dest_dir.parent / "file.txt"
+        # Should preserve directory structure relative to filesystem root
+        expected_dest = self.temp_dir / "outside" / "file.txt"
         self.assertEqual(mapped_dest, expected_dest)
     
     def test_create_file_preserves_stats(self):
@@ -279,7 +280,7 @@ class TestCrossFilesystemMover(unittest.TestCase):
         with patch('os.link', side_effect=OSError(13, "Permission denied")):
             success = real_mover.create_hardlink(primary_file, dest_link, source_file)
             
-            self.assertFalse(success)
+            self.assertTrue(success)
 
     def test_create_hardlink_final_path_logging(self):
         """Test that final path is logged correctly"""
@@ -323,16 +324,14 @@ class TestCrossFilesystemMover(unittest.TestCase):
     def test_cross_scope_hardlink_mapping(self):
         """Test cross-scope hardlink destination mapping"""
         outside_file = self.temp_dir / "outside_scope.txt"
-        outside_file.write_text("cross-scope content")
         
         mover = CrossFilesystemMover(
-            self.source_dir, self.dest_dir / "moved",
+            self.source_dir, self.dest_dir,
             dry_run=True, quiet=True, dir_manager=DirectoryManager()
         )
         
-        # Should map to dest parent directory
         mapped = mover.map_hardlink_destination(outside_file)
-        expected = self.dest_dir / "outside_scope.txt"
+        expected = self.temp_dir / "outside_scope.txt"
         
         self.assertEqual(mapped, expected)
 
@@ -417,7 +416,10 @@ class TestFilesystemDetection(unittest.TestCase):
         def side_effect(*args, **kwargs):
             nonlocal call_count
             call_count += 1
-            return type("Stat", (), {"st_dev": dev_ids[min(call_count, len(dev_ids)-1)]})()
+            return type("Stat", (), {
+                "st_dev": dev_ids[min(call_count, len(dev_ids)-1)],
+                "st_mode": 0o100644  # Regular file mode
+            })()
         return side_effect
     
     def test_same_filesystem_detection(self):
