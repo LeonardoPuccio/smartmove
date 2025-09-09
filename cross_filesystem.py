@@ -95,7 +95,7 @@ class CrossFilesystemMover:
         else:
             try:
                 source_size = sum(f.stat().st_size for f in self.source_path.rglob('*') if f.is_file())
-            except (OSError, PermissionError) as e:
+            except OSError as e:
                 raise RuntimeError(f"Cannot calculate source size for space validation: {e}")
         
         try:
@@ -197,7 +197,7 @@ class CrossFilesystemMover:
             
             return hardlinks
             
-        except (OSError, FileNotFoundError) as e:
+        except OSError as e:
             logger.debug(f"Hardlink detection failed for {file_path}: {e}")
             return [file_path]
     
