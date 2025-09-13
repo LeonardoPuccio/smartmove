@@ -129,16 +129,26 @@ sudo smv /mnt/mergefs/dataset /mnt/archive --comprehensive --verbose
 
 ## Testing & Development
 
+### Development Workflow
 ```bash
-# Setup development environment
+# Setup
 python3 -m venv .venv
 source .venv/bin/activate  # Linux/Mac
+make install-dev
 
-pip install -r requirements-dev.txt
+# Local development cycle
+make fix     # Auto-fix formatting and linting issues
+make test    # Run all tests with coverage
+make lint    # Verify code compliance
+```
 
-# Run tests
-python3 -m pytest tests/test_unit.py tests/test_integration.py -v  # Fast tests
-sudo .venv/bin/python3 -m pytest tests/test_e2e.py -v  # Real filesystem tests
+### Manual Testing
+```bash
+# Fast tests (unit + integration)
+python3 -m pytest tests/test_unit.py tests/test_integration.py -v --cov=. --cov-report=xml
+
+# E2E tests (require root for loop devices)  
+sudo .venv/bin/python3 -m pytest tests/test_e2e.py -v
 ```
 
 ### E2E Test Performance
