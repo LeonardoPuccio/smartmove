@@ -1,3 +1,7 @@
-pytest>=6.0.0
-pytest-cov>=2.0.0
-pysonar
+black==25.1.0
+isort==6.0.1
+pre_commit==4.3.0
+pysonar==1.1.0.2035
+pytest==8.4.2
+pytest-cov==7.0.0
+ruff==0.13.0

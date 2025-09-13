@@ -1,0 +1,30 @@
+.PHONY: format lint fix test clean install-dev all
+
+format:
+	black .
+	isort . --profile black
+
+lint:
+	ruff check .
+	black --check .
+	isort . --check-only --profile black
+
+fix:
+	ruff check . --fix
+	black .
+	isort . --profile black
+
+test:
+	pytest tests/ --cov=. --cov-report=xml --cov-report=html --junitxml=test-results.xml -v
+
+clean:
+	rm -rf .pytest_cache/ .coverage htmlcov/ coverage.xml test-results.xml
+	rm -rf build/ dist/ *.egg-info/
+	find . -type d -name __pycache__ -exec rm -rf {} +
+
+install-dev:
+	pip install -r requirements-dev.txt
+	pip install -e .
+	pre-commit install
+
+all: fix test
