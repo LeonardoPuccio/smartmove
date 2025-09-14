@@ -3,6 +3,7 @@
 CLI tests for smartmove.py to increase coverage
 """
 
+import os
 import sys
 import tempfile
 import unittest
@@ -297,6 +298,89 @@ class TestSmartMoveCLI(unittest.TestCase):
 
                     # Check if logging level was set to ERROR (default)
                     self.assertEqual(logging.getLogger().level, logging.ERROR)
+
+    def test_cross_filesystem_permission_validation(self):
+        """Test permission validation in CrossFilesystemMover"""
+        from cross_filesystem import CrossFilesystemMover
+        from directory_manager import DirectoryManager
+
+        # Test unreadable source
+        with patch("os.access") as mock_access:
+            mock_access.side_effect = lambda path, mode: (
+                mode != os.R_OK if "source" in str(path) else True
+            )
+
+            with self.assertRaises(PermissionError) as context:
+                CrossFilesystemMover(
+                    self.source_file,
+                    self.dest_file,
+                    dry_run=False,
+                    quiet=True,
+                    dir_manager=DirectoryManager(dry_run=False),
+                )
+
+            self.assertIn("Cannot read source", str(context.exception))
+
+    def test_cross_filesystem_dest_permission_validation(self):
+        """Test destination permission validation"""
+        from cross_filesystem import CrossFilesystemMover
+        from directory_manager import DirectoryManager
+
+        # Test unwritable destination
+        with patch("os.access") as mock_access:
+            # Return False for write access on destination parent
+            def access_side_effect(path, mode):
+                if str(path) == str(self.dest_file.parent) and mode == os.W_OK:
+                    return False
+                return True
+
+            mock_access.side_effect = access_side_effect
+
+            with self.assertRaises(PermissionError) as context:
+                CrossFilesystemMover(
+                    self.source_file,
+                    self.dest_file,
+                    dry_run=False,
+                    quiet=True,
+                    dir_manager=DirectoryManager(dry_run=False),
+                )
+
+            self.assertIn("Cannot write to destination", str(context.exception))
+
+    def test_cross_filesystem_space_validation_error(self):
+        """Test space validation error handling"""
+        from cross_filesystem import CrossFilesystemMover
+        from directory_manager import DirectoryManager
+
+        # Mock shutil.disk_usage to fail
+        with patch("shutil.disk_usage", side_effect=OSError("Access denied")):
+            with self.assertRaises(RuntimeError) as context:
+                CrossFilesystemMover(
+                    self.source_file,
+                    self.dest_file,
+                    dry_run=False,
+                    quiet=True,
+                    dir_manager=DirectoryManager(dry_run=False),
+                )
+
+            self.assertIn("Cannot check destination space", str(context.exception))
+
+    def test_main_function_permission_error_message(self):
+        """Test improved permission error message"""
+        import smartmove
+
+        test_args = ["smartmove.py", str(self.source_file), str(self.dest_file)]
+
+        with patch.object(sys, "argv", test_args):
+            with patch("os.geteuid", return_value=1000):  # Non-root
+                with patch(
+                    "smartmove.FileMover",
+                    side_effect=PermissionError("Permission denied"),
+                ):
+                    with self.assertRaises(SystemExit) as context:
+                        smartmove.main()
+
+                    self.assertEqual(context.exception.code, 1)
 
 
 if __name__ == "__main__":

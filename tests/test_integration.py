@@ -9,6 +9,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from cross_filesystem import CrossFilesystemMover
+from directory_manager import DirectoryManager
 from file_mover import FileMover
 
 
@@ -354,6 +356,83 @@ class TestSmartMoveIntegration(unittest.TestCase):
                 second_call_count,
                 "Index should be cached and not rebuilt for subsequent calls",
             )
+
+    def test_destination_directory_detection(self):
+        """Test destination directory detection with trailing slash"""
+        source_file = self.source_dir / "test.txt"
+        source_file.write_text("test content")
+
+        dest_dir = self.temp_dir / "destdir"
+        dest_dir.mkdir()
+
+        # Test with trailing slash
+        mover = FileMover(str(source_file), str(dest_dir) + "/", dry_run=True)
+        expected_dest = dest_dir / source_file.name
+        self.assertEqual(mover.dest_path, expected_dest)
+
+    def test_filesystem_detection_error_handling(self):
+        """Test filesystem detection with stat errors"""
+        source_file = self.source_dir / "test.txt"
+        source_file.write_text("test content")
+        dest_file = self.dest_dir / "moved.txt"
+
+        mover = FileMover(source_file, dest_file, dry_run=True)
+
+        with patch.object(Path, "stat", side_effect=OSError("Stat failed")):
+            result = mover._detect_same_filesystem()
+            self.assertFalse(result)
+
+    def test_move_unsupported_source_type(self):
+        """Test move with unsupported source type"""
+        source_file = self.source_dir / "test.txt"
+        source_file.write_text("test content")
+        dest_file = self.dest_dir / "moved.txt"
+
+        mover = FileMover(source_file, dest_file, dry_run=True)
+
+        # Store original methods
+        original_is_file = Path.is_file
+        original_is_dir = Path.is_dir
+
+        def mock_is_file(self):
+            if self == mover.source_path:
+                return False
+            return original_is_file(self)
+
+        def mock_is_dir(self):
+            if self == mover.source_path:
+                return False
+            return original_is_dir(self)
+
+        # Force cross-filesystem path where type check happens
+        with patch.object(mover, "_detect_same_filesystem", return_value=False):
+            with patch.object(Path, "is_file", mock_is_file):
+                with patch.object(Path, "is_dir", mock_is_dir):
+                    result = mover.move()
+                    self.assertFalse(result)
+
+    def test_hardlink_creation_permission_retry(self):
+        """Test hardlink creation with permission retry fallback"""
+        source_file = self.source_dir / "test.txt"
+        source_file.write_text("content")
+        dest_file = self.dest_dir / "moved.txt"
+
+        mover = CrossFilesystemMover(
+            source_file,
+            dest_file,
+            dry_run=False,
+            quiet=True,
+            dir_manager=DirectoryManager(dry_run=False),
+        )
+
+        primary_file = dest_file
+        dest_link = self.dest_dir / "link.txt"
+
+        with patch("os.link", side_effect=PermissionError("Access denied")):
+            with patch.object(mover, "create_file", return_value=True) as mock_create:
+                result = mover.create_hardlink(primary_file, dest_link, source_file)
+                self.assertTrue(result)
+                mock_create.assert_called_once()
 
 
 class TestMountPointDetection(unittest.TestCase):

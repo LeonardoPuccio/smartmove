@@ -505,12 +505,91 @@ class TestCrossFilesystemMover(unittest.TestCase):
                 "os.chown", side_effect=PermissionError("Operation not permitted")
             ):
                 with patch("shutil.copy2"):  # Ensure file creation succeeds
-                    with self.assertLogs(level="WARNING") as log:
-                        real_mover.create_file(source_file, dest_file)
+                    with patch("os.chmod"):  # Ensure chmod succeeds
+                        with self.assertLogs(level="WARNING") as log:
+                            result = real_mover.create_file(source_file, dest_file)
+                            self.assertTrue(result)
 
-                        # Check that warning doesn't suggest sudo
-                        warning_msg = log.output[0]
-                        self.assertNotIn("sudo", warning_msg.lower())
+                            # Check that warning doesn't suggest sudo
+                            warning_msg = log.output[0]
+                            self.assertNotIn("sudo", warning_msg.lower())
+                            self.assertIn("Could not preserve ownership", warning_msg)
+
+    def test_comprehensive_scan_subprocess_error(self):
+        """Test comprehensive scan with subprocess error"""
+        mover = CrossFilesystemMover(
+            self.source_dir,
+            self.dest_dir,
+            dry_run=True,
+            quiet=True,
+            dir_manager=DirectoryManager(),
+            comprehensive_scan=True,
+        )
+
+        with patch("subprocess.run", side_effect=OSError("Command not found")):
+            with self.assertRaises(RuntimeError) as context:
+                mover._build_hardlink_index()
+
+            self.assertIn("comprehensive", str(context.exception))
+
+    def test_find_hardlinks_stat_error(self):
+        """Test find_hardlinks with stat error"""
+        test_file = self.source_dir / "test.txt"
+        test_file.write_text("content")
+
+        mover = CrossFilesystemMover(
+            self.source_dir,
+            self.dest_dir,
+            dry_run=True,
+            quiet=True,
+            dir_manager=DirectoryManager(),
+        )
+
+        with patch.object(Path, "stat", side_effect=OSError("Permission denied")):
+            result = mover.find_hardlinks(test_file)
+            self.assertEqual(result, [test_file])
+
+    def test_temp_file_cleanup_mechanisms(self):
+        """Test temp file cleanup"""
+        mover = CrossFilesystemMover(
+            self.source_dir,
+            self.dest_dir,
+            dry_run=False,
+            quiet=True,
+            dir_manager=DirectoryManager(dry_run=False),
+        )
+
+        temp_file = self.temp_dir / "temp_test.txt"
+        temp_file.write_text("temp")
+
+        mover._track_temp_file(temp_file)
+        self.assertIn(temp_file, mover.temp_files)
+
+        mover._cleanup_temp_files()
+        self.assertFalse(temp_file.exists())
+
+    def test_move_directory_cross_filesystem(self):
+        """Test move_directory method directly"""
+        test_dir = self.source_dir / "test_dir"
+        test_dir.mkdir()
+        (test_dir / "file1.txt").write_text("content1")
+
+        real_mover = CrossFilesystemMover(
+            test_dir,
+            self.dest_dir / "moved_dir",
+            dry_run=False,
+            quiet=True,
+            dir_manager=DirectoryManager(dry_run=False),
+        )
+
+        with patch.object(real_mover, "_find_mount_point", return_value=self.temp_dir):
+            with patch("subprocess.run") as mock_run:
+                mock_run.return_value.returncode = 0
+                mock_run.return_value.stdout = ""
+
+                success = real_mover.move_directory()
+
+        self.assertTrue(success)
 
 
 class TestFilesystemDetection(unittest.TestCase):
