@@ -301,7 +301,12 @@ class CrossFilesystemMover:
                 try:
                     os.chown(dest_file, source_stat.st_uid, source_stat.st_gid)
                 except PermissionError:
-                    logger.warning(f"Could not preserve ownership for {dest_file}")
+                    if os.geteuid() != 0:
+                        logger.warning(
+                            f"Could not preserve ownership for {dest_file} - run with sudo for full preservation"
+                        )
+                    else:
+                        logger.warning(f"Could not preserve ownership for {dest_file}")
 
             # Log final path, not temp path
             display_path = final_path if final_path else dest_file

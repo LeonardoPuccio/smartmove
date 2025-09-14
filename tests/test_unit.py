@@ -457,6 +457,61 @@ class TestCrossFilesystemMover(unittest.TestCase):
             dest_file.exists(), "Destination file should not be created in dry-run"
         )
 
+    def test_ownership_preservation_warning_suggests_sudo(self):
+        """Test that ownership warning suggests sudo when not root"""
+        source_file = self.source_dir / "test.txt"
+        source_file.write_text("content")
+        dest_file = self.dest_dir / "moved.txt"
+
+        real_mover = CrossFilesystemMover(
+            source_file,
+            dest_file,
+            dry_run=False,
+            quiet=True,
+            dir_manager=DirectoryManager(dry_run=False),
+        )
+
+        # Mock os.geteuid to simulate non-root
+        with patch("os.geteuid", return_value=1000):
+            with patch(
+                "os.chown", side_effect=PermissionError("Operation not permitted")
+            ):
+                with self.assertLogs(level="WARNING") as log:
+                    result = real_mover.create_file(source_file, dest_file)
+                    print(f"Result: {result}")
+                    print(f"Log output: {log.output}")
+
+                    # Check that warning suggests sudo
+                    warning_msg = log.output[0] if log.output else ""
+                    self.assertIn("run with sudo", warning_msg.lower())
+
+    def test_ownership_preservation_warning_no_sudo_when_root(self):
+        """Test that ownership warning doesn't suggest sudo when already root"""
+        source_file = self.source_dir / "test.txt"
+        source_file.write_text("content")
+        dest_file = self.dest_dir / "moved.txt"
+
+        real_mover = CrossFilesystemMover(
+            source_file,
+            dest_file,
+            dry_run=False,
+            quiet=True,
+            dir_manager=DirectoryManager(dry_run=False),
+        )
+
+        # Mock os.geteuid to simulate root
+        with patch("os.geteuid", return_value=0):
+            with patch(
+                "os.chown", side_effect=PermissionError("Operation not permitted")
+            ):
+                with patch("shutil.copy2"):  # Ensure file creation succeeds
+                    with self.assertLogs(level="WARNING") as log:
+                        real_mover.create_file(source_file, dest_file)
+
+                        # Check that warning doesn't suggest sudo
+                        warning_msg = log.output[0]
+                        self.assertNotIn("sudo", warning_msg.lower())
+
 
 class TestFilesystemDetection(unittest.TestCase):
     """Test filesystem detection logic"""
