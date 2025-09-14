@@ -1,4 +1,4 @@
-.PHONY: format lint fix test clean install-dev all
+.PHONY: format lint fix test test-unit test-integration test-e2e clean install-dev all
 
 format:
 	black .
@@ -14,8 +14,17 @@ fix:
 	black .
 	isort . --profile black
 
+test-unit:
+	pytest tests/test_unit.py tests/test_cli.py --cov=. --cov-report=xml --cov-report=html --junitxml=test-results.xml -v
+
+test-integration:
+	pytest tests/test_integration.py --cov=. --cov-append --cov-report=xml --cov-report=html -v
+
+test-e2e:
+	sudo .venv/bin/python3 -m pytest tests/test_e2e.py --cov=. --cov-append --cov-report=xml --cov-report=html -v
+
 test:
-	pytest tests/ --cov=. --cov-report=xml --cov-report=html --junitxml=test-results.xml -v
+	pytest tests/test_unit.py tests/test_integration.py tests/test_cli.py --cov=. --cov-report=xml --cov-report=html --junitxml=test-results.xml -v
 
 clean:
 	rm -rf .pytest_cache/ .coverage htmlcov/ coverage.xml test-results.xml
