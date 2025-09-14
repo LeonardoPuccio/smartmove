@@ -51,6 +51,22 @@ setup_demo() {
     ln "$SOURCE_BASE/external.txt" "$SOURCE_BASE/subfolder/internal.txt"
 }
 
+install_smartmove() {
+    # Check if SmartMove is installed
+    if ! command smv --version &> /dev/null; then
+        echo "Installing SmartMove..."
+        if [ -d "smartmove" ]; then
+            cd smartmove && git pull && cd ..
+        else
+            git clone https://github.com/LeonardoPuccio/smartmove.git
+        fi
+        cd smartmove && pip install . && cd ..
+    else
+        echo "SmartMove is already installed."
+    fi
+    echo ""
+}
+
 cleanup() {
     rm -rf "/tmp/$SAFE_DIR"
     echo "Cleanup completed."
@@ -61,6 +77,7 @@ trap cleanup EXIT
 # ── Initial setup ─────────────────────────────────────
 echo -e "${BOLD}SmartMove Cross-Scope Hardlink Demo${RESET}"
 echo -e "(Same Filesystem Test)\n"
+install_smartmove
 setup_demo
 show_state
 
@@ -94,19 +111,7 @@ echo -e "\n[RESULT] RSYNC → ${YELLOW}Orphaned file (external.txt, hardlink los
 # ── SMARTMOVE test ────────────────────────────────────
 echo -e "\n${GREEN}${BOLD}==== TESTING SMARTMOVE ====${RESET}\n"
 setup_demo
-
-# Check if SmartMove is installed
-if ! command --version smv &> /dev/null; then
-    echo "Installing SmartMove..."
-    if [ -d "smartmove" ]; then
-        cd smartmove && git pull && cd ..
-    else
-        git clone https://github.com/LeonardoPuccio/smartmove.git
-    fi
-    cd smartmove && python3 setup.py install && cd ..
-fi
-
-cmd="smv \"$SOURCE_BASE/subfolder\" \"$DEST_BASE/subfolder\" -p --quiet"
+cmd="sudo smv \"$SOURCE_BASE/subfolder\" \"$DEST_BASE/subfolder\" -p --quiet"
 echo -e "${CYAN}Running:${RESET}\n  $cmd\n"
 eval "$cmd"
 show_state
