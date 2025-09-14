@@ -1,4 +1,4 @@
-# SmartMove
+# SmartMove [![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=smartmove&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=smartmove) [![Coverage](https://sonarcloud.io/api/project_badges/measure?project=smartmove&metric=coverage)](https://sonarcloud.io/summary/new_code?id=smartmove)
 
 Cross-filesystem file mover with hardlink preservation. Moves files and directories between different filesystems while maintaining hardlink relationships that would otherwise be broken by standard tools.
 
