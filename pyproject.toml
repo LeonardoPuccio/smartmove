@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "smartmove"
+version = "0.1.0"
+description = "Cross-filesystem file mover with hardlink preservation"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "Leonardo Puccio", email = "me@leonardopuccio.dev"}
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: System Administrators",
+    "Topic :: System :: Filesystems",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+requires-python = ">=3.10"
+
+[project.urls]
+Homepage = "https://github.com/LeonardoPuccio/smartmove"
+
+[project.scripts]
+smv = "smartmove:main"
+
+[tool.setuptools]
+py-modules = ["smartmove", "file_mover", "cross_filesystem", "directory_manager"]
