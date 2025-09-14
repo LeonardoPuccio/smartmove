@@ -47,6 +47,7 @@ def main():
         help="Scan all mounted filesystems for hardlinks (slower, for complex storage setups)",
     )
     parser.add_argument(
+        "-v",
         "--verbose",
         action="store_true",
         help="Enable verbose logging (show process information)",
@@ -57,6 +58,7 @@ def main():
     parser.add_argument(
         "-q", "--quiet", action="store_true", help="Suppress output except errors"
     )
+    parser.add_argument("--version", action="version", version="SmartMove 0.1.0")
 
     args = parser.parse_args()
 

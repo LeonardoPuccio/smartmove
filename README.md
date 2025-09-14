@@ -24,7 +24,7 @@ Choose one installation method:
 
 ### Option 1: Symlink (Development/Temporary)
 ```bash
-chmod +x smartmove.py
+chmod +x smartmove.py # if necessary
 sudo ln -s $(pwd)/smartmove.py /usr/local/bin/smv
 ```
 - **Keep source code** - deleting this directory breaks the command
@@ -59,9 +59,10 @@ sudo smv "/mnt/mergefs/dataset" "/mnt/archive" --comprehensive --verbose
 - `-p, --parents` - Create parent directories as needed
 - `--dry-run` - Preview actions only
 - `--comprehensive` - Scan all mounted filesystems for hardlinks (slower, for complex storage setups)
-- `--verbose` - Show detailed progress
-- `--debug` - Enable debug logging (requires --verbose)
+- `-v, --verbose` - Show detailed progress messages
+- `--debug` - Enable debug logging (requires -v/--verbose)
 - `-q, --quiet` - Suppress output except errors
+- `--version` - Show version information
 
 ## Why SmartMove?
 

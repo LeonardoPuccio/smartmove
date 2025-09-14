@@ -78,6 +78,57 @@ class TestSmartMoveCLI(unittest.TestCase):
 
                     mock_mover.assert_called_once()
 
+    def test_main_function_verbose_short_flag(self):
+        """Test main function with -v flag (short form for verbose)"""
+        import smartmove
+
+        test_args = [
+            "smartmove.py",
+            str(self.source_file),
+            str(self.dest_file),
+            "-v",
+        ]
+
+        with patch.object(sys, "argv", test_args):
+            with patch("os.geteuid", return_value=0):  # Mock root
+                with patch("smartmove.FileMover") as mock_mover:
+                    mock_instance = mock_mover.return_value
+                    mock_instance.move.return_value = True
+
+                    try:
+                        smartmove.main()
+                    except SystemExit as e:
+                        if e.code != 0:
+                            raise
+
+                    mock_mover.assert_called_once()
+
+    def test_main_function_debug_short_verbose(self):
+        """Test main function with debug flag and -v for verbose"""
+        import smartmove
+
+        test_args = [
+            "smartmove.py",
+            str(self.source_file),
+            str(self.dest_file),
+            "-v",
+            "--debug",
+        ]
+
+        with patch.object(sys, "argv", test_args):
+            with patch("os.geteuid", return_value=0):
+                with patch("smartmove.FileMover") as mock_mover:
+                    mock_instance = mock_mover.return_value
+                    mock_instance.move.return_value = True
+
+                    try:
+                        smartmove.main()
+                    except SystemExit as e:
+                        if e.code != 0:
+                            raise
+
+                    mock_mover.assert_called_once()
+
     def test_main_function_debug_requires_verbose(self):
         """Test that debug flag requires verbose flag"""
         import smartmove
@@ -247,6 +298,63 @@ class TestSmartMoveCLI(unittest.TestCase):
                     # Check if logging level was set to INFO
                     self.assertEqual(logging.getLogger().level, logging.INFO)
 
+    def test_logging_level_verbose_short_flag(self):
+        """Test logging level setting with -v flag"""
+        import logging
+
+        import smartmove
+
+        test_args = [
+            "smartmove.py",
+            str(self.source_file),
+            str(self.dest_file),
+            "-v",
+        ]
+
+        with patch.object(sys, "argv", test_args):
+            with patch("os.geteuid", return_value=0):
+                with patch("smartmove.FileMover") as mock_mover:
+                    mock_instance = mock_mover.return_value
+                    mock_instance.move.return_value = True
+
+                    try:
+                        smartmove.main()
+                    except SystemExit as e:
+                        if e.code != 0:
+                            raise
+
+                    # Check if logging level was set to INFO
+                    self.assertEqual(logging.getLogger().level, logging.INFO)
+
+    def test_logging_level_debug_short_verbose(self):
+        """Test logging level setting with -v and --debug flags"""
+        import logging
+
+        import smartmove
+
+        test_args = [
+            "smartmove.py",
+            str(self.source_file),
+            str(self.dest_file),
+            "-v",
+            "--debug",
+        ]
+
+        with patch.object(sys, "argv", test_args):
+            with patch("os.geteuid", return_value=0):
+                with patch("smartmove.FileMover") as mock_mover:
+                    mock_instance = mock_mover.return_value
+                    mock_instance.move.return_value = True
+
+                    try:
+                        smartmove.main()
+                    except SystemExit as e:
+                        if e.code != 0:
+                            raise
+
+                    # Check if logging level was set to DEBUG
+                    self.assertEqual(logging.getLogger().level, logging.DEBUG)
+
     def test_logging_level_debug(self):
         """Test logging level setting with debug flag"""
         import logging
@@ -381,6 +489,19 @@ class TestSmartMoveCLI(unittest.TestCase):
                         smartmove.main()
 
                     self.assertEqual(context.exception.code, 1)
+
+    def test_version_flag(self):
+        """Test --version flag"""
+        import smartmove
+
+        test_args = ["smartmove.py", "--version"]
+
+        with patch.object(sys, "argv", test_args):
+            with self.assertRaises(SystemExit) as context:
+                smartmove.main()
+
+            # argparse exits with code 0 for --version
+            self.assertEqual(context.exception.code, 0)
 
 
 if __name__ == "__main__":
