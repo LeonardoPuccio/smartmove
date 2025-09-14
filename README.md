@@ -14,7 +14,7 @@ Cross-filesystem file mover with hardlink preservation. Moves files and director
 
 ## Installation
 
-First, clone the repository:
+Clone the repository:
 ```bash
 git clone https://github.com/LeonardoPuccio/smartmove.git
 cd smartmove
@@ -24,6 +24,7 @@ Choose one installation method:
 
 ### Option 1: Symlink (Development/Temporary)
 ```bash
+chmod +x smartmove.py
 sudo ln -s $(pwd)/smartmove.py /usr/local/bin/smv
 ```
 - **Keep source code** - deleting this directory breaks the command
@@ -47,9 +48,9 @@ Both create `smv` command globally
 # Basic syntax
 smv SOURCE DEST [options]
 
-# Examples
-smv "/mnt/ssd/movie" "/mnt/hdd/movie" --dry-run
-smv "/mnt/ssd/documents" "/mnt/hdd/backup/" -p
+# Examples  
+sudo smv "/mnt/ssd/movie" "/mnt/hdd/movie" --dry-run
+sudo smv "/mnt/ssd/documents" "/mnt/hdd/backup/" -p
 sudo smv "/mnt/fast/media" "/mnt/slow/archive" --verbose
 sudo smv "/mnt/mergefs/dataset" "/mnt/archive" --comprehensive --verbose
 ```
@@ -78,14 +79,14 @@ rsync -aH --mkpath /mnt/ssd2tb/test1/ /mnt/hdd20tb/test1/
 stat -c "Links: %h" /mnt/hdd20tb/test1/original.txt   # Shows: Links: 1 (hardlink broken!)
 
 # Clean up rsync test
-rm -rf /mnt/hdd20tb/test1 /mnt/hdd20tb/test2
+sudo rm -rf /mnt/hdd20tb/test1 /mnt/hdd20tb/test2
 
 # SmartMove preserves all hardlinks by scanning source filesystem
-smv /mnt/ssd2tb/test1 /mnt/hdd20tb/test1
+sudo smv /mnt/ssd2tb/test1 /mnt/hdd20tb/test1
 stat -c "Links: %h" /mnt/hdd20tb/test2/hardlink.txt  # Shows: Links: 2 (both files moved)
 
-# Final clean up test files
-rm -rf /mnt/ssd2tb/test1 /mnt/ssd2tb/test2 /mnt/hdd20tb/test1 /mnt/hdd20tb/test2
+# Final clean up test files  
+sudo rm -rf /mnt/ssd2tb/test1 /mnt/ssd2tb/test2 /mnt/hdd20tb/test1 /mnt/hdd20tb/test2
 ```
 
 **Root cause:** `rsync -H` only preserves hardlinks within the transferred file set, missing hardlinks outside the source directory.
@@ -117,7 +118,7 @@ smv "/mnt/ssd/media" "/mnt/hdd/backup/" --dry-run -p
 # Large operation with progress
 sudo smv /mnt/fast/dataset /mnt/slow/archive -p --verbose
 
-# Complex storage setup (MergerFS, spanning multiple drives/storage devices)
+# Complex storage setup
 sudo smv /mnt/mergefs/dataset /mnt/archive --comprehensive --verbose
 ```
 

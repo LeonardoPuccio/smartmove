@@ -301,7 +301,7 @@ class CrossFilesystemMover:
                 try:
                     os.chown(dest_file, source_stat.st_uid, source_stat.st_gid)
                 except PermissionError:
-                    logger.debug(f"Could not preserve ownership for {dest_file}")
+                    logger.warning(f"Could not preserve ownership for {dest_file}")
 
             # Log final path, not temp path
             display_path = final_path if final_path else dest_file
