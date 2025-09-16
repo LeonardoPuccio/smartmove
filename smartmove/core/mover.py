@@ -9,8 +9,9 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 
-from cross_filesystem import CrossFilesystemMover
 from directory_manager import DirectoryManager
+
+from cross_filesystem import CrossFilesystemMover
 
 logger = logging.getLogger(__name__)
 
