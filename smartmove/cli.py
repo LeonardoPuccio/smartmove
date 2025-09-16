@@ -16,7 +16,7 @@ import logging
 import os
 import sys
 
-from file_mover import FileMover
+from smartmove.core import FileMover
 
 # Configure logging
 logging.basicConfig(

@@ -15,6 +15,8 @@ import time
 import unittest
 from pathlib import Path
 
+from smartmove.core import FileMover
+
 
 class RealFilesystemTestSetup:
     """Setup and teardown real different filesystems for E2E testing"""
@@ -161,9 +163,6 @@ class TestComprehensiveE2E(unittest.TestCase):
             self.assertEqual(source_file.stat().st_ino, outside_link.stat().st_ino)
             self.assertEqual(source_file.stat().st_nlink, 2)
 
-            sys.path.insert(0, str(Path(__file__).parent.parent))
-            from file_mover import FileMover
-
             # Test 1: Default behavior (should not find outside hardlink)
             dest_dir_default = fs2_mount / "moved_default"
             mover_default = FileMover(
@@ -214,9 +213,6 @@ class TestComprehensiveE2E(unittest.TestCase):
         """Test various failure conditions"""
 
         with RealFilesystemTestSetup() as (fs1_mount, fs2_mount):
-            sys.path.insert(0, str(Path(__file__).parent.parent))
-            from file_mover import FileMover
-
             # Test 1: Invalid source path
             nonexistent_source = fs1_mount / "does_not_exist"
             dest_invalid = fs2_mount / "invalid_moved"
@@ -284,9 +280,6 @@ class TestComprehensiveE2E(unittest.TestCase):
             self.assertEqual(file1.stat().st_nlink, 2)
             self.assertEqual(outside_file2.stat().st_nlink, 2)
             self.assertEqual(file3.stat().st_nlink, 3)
-
-            sys.path.insert(0, str(Path(__file__).parent.parent))
-            from file_mover import FileMover
 
             # Test with comprehensive scanning
             dest_dir = fs2_mount / "comprehensive_moved"
@@ -363,9 +356,6 @@ class TestComprehensiveE2E(unittest.TestCase):
             outside_link = fs1_mount / "outside.txt"
             os.link(test_file, outside_link)
 
-            sys.path.insert(0, str(Path(__file__).parent.parent))
-            from file_mover import FileMover
-
             # Test dry-run with comprehensive
             dest_dir = fs2_mount / "preview_moved"
             mover = FileMover(
@@ -428,9 +418,6 @@ class TestLargeScalePerformance(unittest.TestCase):
                     os.link(original, link)
 
             creation_time = time.time() - creation_start
-
-            sys.path.insert(0, str(Path(__file__).parent.parent))
-            from file_mover import FileMover
 
             # Test comprehensive scanning performance
             dest_dir = fs2_mount / "large_moved"

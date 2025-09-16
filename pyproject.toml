@@ -26,7 +26,17 @@ requires-python = ">=3.10"
 Homepage = "https://github.com/LeonardoPuccio/smartmove"
 
 [project.scripts]
-smv = "smartmove:main"
+smv = "smartmove.cli:main"
 
 [tool.setuptools]
-py-modules = ["smartmove", "file_mover", "cross_filesystem", "directory_manager"]
+packages = ["smartmove", "smartmove.core", "smartmove.utils"]
+
+[tool.coverage.run]
+omit = ["tests/*"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if __name__ == .__main__.:"
+]

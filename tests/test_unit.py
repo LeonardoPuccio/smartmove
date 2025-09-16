@@ -12,8 +12,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from cross_filesystem import CrossFilesystemMover
-from directory_manager import DirectoryManager
+from smartmove.core import CrossFilesystemMover, FileMover
+from smartmove.utils import DirectoryManager
 
 
 class TestDirectoryManager(unittest.TestCase):
@@ -620,7 +620,6 @@ class TestFilesystemDetection(unittest.TestCase):
 
     def test_same_filesystem_detection(self):
         """Test detection of same filesystem using device IDs"""
-        from file_mover import FileMover
 
         source_file = self.temp_dir / "source.txt"
         dest_file = self.temp_dir / "dest.txt"
@@ -636,7 +635,6 @@ class TestFilesystemDetection(unittest.TestCase):
 
     def test_different_filesystem_detection(self):
         """Test detection of different filesystems using device IDs"""
-        from file_mover import FileMover
 
         source_file = self.temp_dir / "source.txt"
         dest_file = self.temp_dir / "dest.txt"

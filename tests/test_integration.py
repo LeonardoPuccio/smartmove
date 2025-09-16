@@ -4,14 +4,14 @@ Integration tests for SmartMove
 """
 
 import os
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from cross_filesystem import CrossFilesystemMover
-from directory_manager import DirectoryManager
-from file_mover import FileMover
+from smartmove.core import CrossFilesystemMover, FileMover
+from smartmove.utils import DirectoryManager
 
 
 class TestSmartMoveIntegration(unittest.TestCase):
@@ -23,8 +23,6 @@ class TestSmartMoveIntegration(unittest.TestCase):
         self.dest_dir.mkdir()
 
     def tearDown(self):
-        import shutil
-
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
     def _create_hardlinked_files(self, base_dir, file_groups):
@@ -156,7 +154,6 @@ class TestSmartMoveIntegration(unittest.TestCase):
 
     def test_cross_scope_hardlinks(self):
         """Test hardlinks that span outside the move scope"""
-        from cross_filesystem import CrossFilesystemMover
 
         with patch.object(
             CrossFilesystemMover, "_find_mount_point", return_value=self.temp_dir
@@ -190,8 +187,6 @@ class TestSmartMoveIntegration(unittest.TestCase):
         deep_path.mkdir(parents=True)
         deep_file = deep_path / "file.txt"
         deep_file.write_text("Deep content")
-
-        from cross_filesystem import CrossFilesystemMover
 
         cross_mover = CrossFilesystemMover(
             deep_file,
@@ -329,8 +324,6 @@ class TestSmartMoveIntegration(unittest.TestCase):
         }
         created_groups = self._create_hardlinked_files(self.source_dir, file_groups)
 
-        from cross_filesystem import CrossFilesystemMover
-
         cross_mover = CrossFilesystemMover(
             self.source_dir,
             self.dest_dir / "moved",
@@ -446,13 +439,10 @@ class TestMountPointDetection(unittest.TestCase):
         self.dest_dir.mkdir()
 
     def tearDown(self):
-        import shutil
-
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
     def test_find_mount_point_method_exists(self):
         """Test that _find_mount_point method exists and works"""
-        from cross_filesystem import CrossFilesystemMover
 
         mover = CrossFilesystemMover(
             self.source_dir, self.dest_dir, dry_run=True, quiet=True, dir_manager=None
@@ -474,7 +464,6 @@ class TestMountPointDetection(unittest.TestCase):
 
     def test_space_validation_uses_mount_point(self):
         """Test space validation uses mount point for non-existent paths"""
-        from cross_filesystem import CrossFilesystemMover
 
         source_file = self.source_dir / "test.txt"
         source_file.write_text("x" * 1000)
@@ -505,13 +494,10 @@ class TestCrossScopeHardlinks(unittest.TestCase):
         self.dest_dir.mkdir()
 
     def tearDown(self):
-        import shutil
-
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
     def test_cross_scope_hardlink_destination_mapping(self):
         """Test cross-scope hardlink destination preserves directory structure"""
-        from cross_filesystem import CrossFilesystemMover
 
         source_file = self.source_dir / "test.txt"
         source_file.write_text("content")
@@ -553,8 +539,6 @@ class TestLoggingAccuracy(unittest.TestCase):
         self.dest_dir.mkdir()
 
     def tearDown(self):
-        import shutil
-
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
     def test_logged_paths_are_valid(self):
@@ -590,7 +574,6 @@ class TestLoggingAccuracy(unittest.TestCase):
 
     def test_hardlink_mapping_consistency(self):
         """Test logged paths match mapping function output"""
-        from cross_filesystem import CrossFilesystemMover
 
         source_file = self.source_dir / "main.txt"
         source_file.write_text("content")
@@ -641,8 +624,6 @@ class TestDirectoryDetection(unittest.TestCase):
         self.dest_dir.mkdir()
 
     def tearDown(self):
-        import shutil
-
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
     def test_directory_detection_handles_permission_errors(self):
@@ -682,15 +663,10 @@ class TestEdgeCaseHandling(unittest.TestCase):
         self.dest_dir.mkdir()
 
     def tearDown(self):
-        import shutil
-
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
     def test_process_interruption_infrastructure(self):
         """Test that process interruption handling infrastructure exists"""
-        from cross_filesystem import CrossFilesystemMover
-        from directory_manager import DirectoryManager
-
         source_file = self.source_dir / "test.txt"
         source_file.write_text("content")
         dest_file = self.dest_dir / "moved.txt"
@@ -711,8 +687,6 @@ class TestEdgeCaseHandling(unittest.TestCase):
 
     def test_disk_space_exhaustion_handling(self):
         """Test graceful handling of disk space exhaustion"""
-        from cross_filesystem import CrossFilesystemMover
-        from directory_manager import DirectoryManager
 
         source_file = self.source_dir / "test.txt"
         source_file.write_text("content")
@@ -762,10 +736,6 @@ class TestEdgeCaseHandling(unittest.TestCase):
 
     def test_permission_error_retry_logic(self):
         """Test retry logic for permission errors"""
-        import shutil
-
-        from cross_filesystem import CrossFilesystemMover
-        from directory_manager import DirectoryManager
 
         source_file = self.source_dir / "test.txt"
         source_file.write_text("content")
@@ -822,8 +792,6 @@ class TestSymlinkBehavior(unittest.TestCase):
         self.dest_dir.mkdir()
 
     def tearDown(self):
-        import shutil
-
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
     def test_relative_symlink_preservation(self):
@@ -910,8 +878,6 @@ class TestRobustnessScenarios(unittest.TestCase):
         self.dest_dir.mkdir()
 
     def tearDown(self):
-        import shutil
-
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
     def test_readonly_files_handling(self):

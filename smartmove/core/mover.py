@@ -9,9 +9,8 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 
-from directory_manager import DirectoryManager
-
-from cross_filesystem import CrossFilesystemMover
+from smartmove.core import CrossFilesystemMover
+from smartmove.utils import DirectoryManager
 
 logger = logging.getLogger(__name__)
 
