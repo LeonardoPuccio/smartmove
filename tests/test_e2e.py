@@ -15,7 +15,7 @@ import time
 import unittest
 from pathlib import Path
 
-from smartmove.core import FileMover
+from smartmove.core import CrossFilesystemMover, FileMover
 
 
 class RealFilesystemTestSetup:
@@ -444,6 +444,77 @@ class TestLargeScalePerformance(unittest.TestCase):
             print(f"  Creation time: {creation_time:.2f}s")
             print(f"  Move time: {move_time:.2f}s")
             print(f"  Files per second: {total_files / move_time:.1f}")
+
+    def test_hardlink_detection_performance_only(self):
+        """Benchmark hardlink detection speed on large existing dataset
+
+        Tests the core _build_hardlink_index() performance by:
+        1. Creating large hardlink dataset (60k files, 10k hardlink groups)
+        2. Measuring only the scanning phase (dry_run=True)
+        3. Validating detection accuracy and speed thresholds
+
+        This isolates hardlink detection from file I/O operations.
+        """
+
+        with RealFilesystemTestSetup(size_mb=2048) as (fs1_mount, fs2_mount):
+            # Phase 1: Create test dataset (timing not counted toward scan performance)
+            base_dir = fs1_mount / "existing_dataset"
+            base_dir.mkdir()
+
+            setup_start = time.time()
+            for i in range(10000):  # Create 10,000 hardlink groups
+                group_dir = base_dir / f"group_{i:05d}"
+                group_dir.mkdir()
+
+                # Create original file
+                original = group_dir / f"file_{i}.txt"
+                original.write_text(f"content_{i}")
+
+                # Create 5 hardlinks per group = 60,000 total files
+                for j in range(5):
+                    link_dir = base_dir / f"links_{j}"
+                    link_dir.mkdir(exist_ok=True)
+                    link_path = link_dir / f"hardlink_{i:05d}_{j}.txt"
+                    os.link(original, link_path)
+
+            setup_time = time.time() - setup_start
+            total_files = 60000  # 10k originals + 50k hardlinks
+
+            # Phase 2: Benchmark hardlink detection (the actual test)
+            scan_start = time.time()
+            mover = CrossFilesystemMover(
+                base_dir,
+                fs2_mount / "moved",
+                dry_run=True,  # Skip file operations, test scanning only
+                quiet=True,
+                comprehensive_scan=False,
+            )
+
+            # Trigger hardlink index building - this is what we're benchmarking
+            mover._build_hardlink_index()
+            scan_time = time.time() - scan_start
+
+            # Phase 3: Validate results
+            hardlink_groups = len(mover.hardlink_index)
+            indexed_files = sum(len(paths) for paths in mover.hardlink_index.values())
+
+            # Report performance metrics
+            print(f"Dataset creation: {setup_time:.2f}s for {total_files} files")
+            print(f"Hardlink detection: {scan_time:.2f}s")
+            print(f"Detection rate: {total_files / scan_time:.0f} files/sec")
+            print(f"Found {hardlink_groups} hardlink groups ({indexed_files} files)")
+
+            # Performance requirements
+            self.assertEqual(
+                hardlink_groups, 10000, "Should detect all hardlink groups"
+            )
+            self.assertEqual(
+                indexed_files, total_files, "Should index all hardlinked files"
+            )
+            self.assertLess(scan_time, 10.0, f"Scan too slow: {scan_time:.2f}s")
+            self.assertGreater(
+                total_files / scan_time, 5000, "Should process >5k files/sec"
+            )
 
 
 if __name__ == "__main__":
