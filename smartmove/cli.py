@@ -61,7 +61,7 @@ def main():
     parser.add_argument(
         "--no-progress", action="store_true", help="Disable progress display"
     )
-    parser.add_argument("--version", action="version", version="SmartMove 0.1.0")
+    parser.add_argument("--version", action="version", version="SmartMove 0.2.0")
 
     args = parser.parse_args()
 
