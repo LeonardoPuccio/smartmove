@@ -167,6 +167,32 @@ class TestSmartMoveCLI(unittest.TestCase):
                     call_args = mock_mover.call_args
                     self.assertTrue(call_args[0][5])  # comprehensive_scan parameter
 
+    def test_no_progress_flag_parsing(self):
+        """Test --no-progress flag is parsed correctly"""
+
+        test_args = [
+            "smartmove.py",
+            str(self.source_file),
+            str(self.dest_file),
+            "--no-progress",
+        ]
+
+        with patch.object(sys, "argv", test_args):
+            with patch("os.geteuid", return_value=0):
+                with patch("smartmove.cli.FileMover") as mock_mover:
+                    mock_instance = mock_mover.return_value
+                    mock_instance.move.return_value = True
+
+                    try:
+                        cli.main()
+                    except SystemExit as e:
+                        if e.code != 0:
+                            raise
+
+                    # Verify show_progress=False was passed
+                    call_args = mock_mover.call_args
+                    self.assertFalse(call_args[1]["show_progress"])
+
     def test_main_function_parents(self):
         """Test main function with parents flag"""
 

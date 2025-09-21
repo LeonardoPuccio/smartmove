@@ -427,6 +427,71 @@ class TestSmartMoveIntegration(unittest.TestCase):
                 self.assertTrue(result)
                 mock_create.assert_called_once()
 
+    def test_progress_integration_with_move(self):
+        """Test progress reporting during directory move operations"""
+        import io
+        from contextlib import redirect_stdout
+
+        # Create test files in directory
+        for i in range(25):
+            (self.source_dir / f"file_{i}.txt").write_text(f"content {i}")
+
+        captured_output = io.StringIO()
+        with redirect_stdout(captured_output):
+            # Force cross-filesystem and test directory move
+            with patch.object(FileMover, "_detect_same_filesystem", return_value=False):
+                mover = FileMover(
+                    self.source_dir, self.dest_dir / "moved", dry_run=True, quiet=False
+                )
+                success = mover.move()
+
+        self.assertTrue(success)
+        output = captured_output.getvalue()
+        # Look for file counting message instead of progress bar (dry_run=True disables progress bar)
+        self.assertTrue("files" in output.lower() or "%" in output)
+
+    def test_progress_disabled_in_quiet_mode(self):
+        """Test progress is disabled when quiet=True"""
+        import io
+        from contextlib import redirect_stdout
+
+        for i in range(15):
+            (self.source_dir / f"file_{i}.txt").write_text(f"content {i}")
+
+        captured_output = io.StringIO()
+
+        with redirect_stdout(captured_output):
+            mover = FileMover(
+                self.source_dir, self.dest_dir / "moved", dry_run=True, quiet=True
+            )
+            success = mover.move()
+
+        self.assertTrue(success)
+        # Should have no progress output in quiet mode
+        self.assertNotIn("%", captured_output.getvalue())
+
+    def test_no_progress_flag_integration(self):
+        """Test --no-progress flag disables progress in FileMover"""
+        for i in range(15):
+            (self.source_dir / f"file_{i}.txt").write_text(f"content {i}")
+
+        # Test with show_progress=False
+        mover = FileMover(
+            self.source_dir, self.dest_dir / "moved", dry_run=True, show_progress=False
+        )
+
+        # Should not show progress even with files
+        import io
+        from contextlib import redirect_stdout
+
+        captured_output = io.StringIO()
+        with redirect_stdout(captured_output):
+            success = mover.move()
+
+        self.assertTrue(success)
+        output = captured_output.getvalue()
+        self.assertNotIn("%", output)  # No progress indicators
+
 
 class TestMountPointDetection(unittest.TestCase):
     """Test mount point detection functionality"""

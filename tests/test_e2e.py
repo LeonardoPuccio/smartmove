@@ -128,6 +128,7 @@ class RealFilesystemTestSetup:
             pass  # Ignore cleanup errors
 
 
+@unittest.skipUnless(os.geteuid() == 0, "E2E tests require root")
 class TestComprehensiveE2E(unittest.TestCase):
     """E2E tests with comprehensive scanning and failure scenarios"""
 

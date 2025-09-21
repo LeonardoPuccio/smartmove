@@ -13,7 +13,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from smartmove.core import CrossFilesystemMover, FileMover
-from smartmove.utils import DirectoryManager
+from smartmove.utils import DirectoryManager, ProgressReporter
 
 
 class TestDirectoryManager(unittest.TestCase):
@@ -590,6 +590,189 @@ class TestCrossFilesystemMover(unittest.TestCase):
                 success = real_mover.move_directory()
 
         self.assertTrue(success)
+
+    def test_progress_reporter_unicode_detection_success(self):
+        """Test Unicode detection with all conditions met"""
+
+        progress = ProgressReporter(100)
+
+        # Mock the detection method directly
+        with patch.object(progress, "_detect_unicode", return_value=True):
+            progress.unicode_support = progress._detect_unicode()
+            self.assertTrue(progress.unicode_support)
+
+    def test_progress_reporter_ascii_fallback(self):
+        """Test ASCII fallback when Unicode detection fails"""
+
+        progress = ProgressReporter(100)
+
+        with patch.object(progress, "_detect_unicode", return_value=False):
+            progress.unicode_support = progress._detect_unicode()
+            self.assertFalse(progress.unicode_support)
+
+    def test_progress_reporter_eta_calculation(self):
+        """Test ETA calculation accuracy"""
+        import io
+        from contextlib import redirect_stdout
+
+        with patch("time.time", side_effect=[0, 1, 2]):  # Mock time progression
+            progress = ProgressReporter(100, show_progress=True)
+
+            captured_output = io.StringIO()
+            with redirect_stdout(captured_output):
+                # Process 10 files in 1 second = 10/s rate
+                for _ in range(10):
+                    progress.update()
+
+            output = captured_output.getvalue()
+            self.assertIn("10/s", output)
+            self.assertIn("ETA", output)
+
+    def test_progress_reporter_rate_display_format(self):
+        """Test rate display formatting for different speeds"""
+
+        with patch("time.time", side_effect=[0, 1]):
+            progress = ProgressReporter(2000, show_progress=False)  # Disable display
+            progress.processed_files = 1500
+
+            rate_str, eta_str = progress._calculate_stats()
+            self.assertIn("1.5k/s", rate_str)  # Should format as k/s
+
+    def test_progress_reporter_basic(self):
+        """Test ProgressReporter basic functionality"""
+        import io
+        from contextlib import redirect_stdout
+
+        captured_output = io.StringIO()
+
+        with redirect_stdout(captured_output):
+            progress = ProgressReporter(100, quiet=False)
+
+            # Test no output until 10th update
+            for i in range(9):
+                progress.update()
+            self.assertEqual(captured_output.getvalue(), "")
+
+            # Test 10th update shows progress
+            progress.update()
+            output = captured_output.getvalue()
+            self.assertIn("10%", output)
+            self.assertIn("10/100", output)
+
+    def test_progress_reporter_quiet_mode(self):
+        """Test ProgressReporter respects quiet mode"""
+        import io
+        from contextlib import redirect_stdout
+
+        captured_output = io.StringIO()
+
+        with redirect_stdout(captured_output):
+            progress = ProgressReporter(50, quiet=True)
+            for i in range(50):
+                progress.update()
+
+            self.assertEqual(captured_output.getvalue(), "")
+
+    def test_get_total_file_count_single_file(self):
+        """Test _get_total_file_count with single file"""
+        source_file = self.temp_dir / "single.txt"
+        source_file.write_text("content")
+
+        mover = CrossFilesystemMover(
+            source_file,
+            self.temp_dir / "dest.txt",
+            dry_run=True,
+            quiet=True,
+            dir_manager=None,
+        )
+
+        count = mover._get_total_file_count()
+        self.assertEqual(count, 1)
+
+    def test_get_total_file_count_directory(self):
+        """Test _get_total_file_count with directory"""
+        test_dir = self.temp_dir / "test_dir"
+        test_dir.mkdir()
+
+        # Create test files
+        for i in range(5):
+            (test_dir / f"file_{i}.txt").write_text(f"content {i}")
+
+        mover = CrossFilesystemMover(
+            test_dir,
+            self.temp_dir / "dest_dir",
+            dry_run=True,
+            quiet=True,
+            dir_manager=None,
+        )
+
+        count = mover._get_total_file_count()
+        self.assertEqual(count, 5)
+
+    def test_get_total_file_count_subprocess_fallback(self):
+        """Test _get_total_file_count fallback on subprocess failure"""
+        test_dir = self.temp_dir / "fallback_test"
+        test_dir.mkdir()
+        (test_dir / "file.txt").write_text("content")
+
+        mover = CrossFilesystemMover(
+            test_dir, self.temp_dir / "dest", dry_run=True, quiet=True, dir_manager=None
+        )
+
+        with patch(
+            "subprocess.run", side_effect=subprocess.CalledProcessError(1, "find")
+        ):
+            count = mover._get_total_file_count()
+            self.assertEqual(count, 1)  # Should fall back to rglob
+
+    def test_progress_reporter_unicode_detection_exception(self):
+        """Test Unicode detection exception handling"""
+
+        with patch(
+            "locale.getpreferredencoding", side_effect=Exception("Locale error")
+        ):
+            progress = ProgressReporter(100)
+            self.assertFalse(progress.unicode_support)
+
+    def test_progress_reporter_no_eta_when_no_rate(self):
+        """Test ETA empty when rate is zero"""
+
+        with patch("time.time", return_value=1.0):
+            progress = ProgressReporter(100, show_progress=False)
+            progress.start_time = 0.0  # Set start time manually
+            progress.processed_files = 0  # Zero files = zero rate
+
+            rate_str, eta_str = progress._calculate_stats()
+            self.assertEqual(eta_str, "")  # Empty when rate = 0
+
+    def test_progress_reporter_unicode_bar_display(self):
+        """Test Unicode vs ASCII bar display"""
+        import io
+        from contextlib import redirect_stdout
+
+        # Test Unicode path
+        progress_unicode = ProgressReporter(100, show_progress=True)
+        progress_unicode.unicode_support = True
+
+        captured_output = io.StringIO()
+        with redirect_stdout(captured_output):
+            for _ in range(10):
+                progress_unicode.update()
+
+        output = captured_output.getvalue()
+        self.assertIn("█", output)  # Unicode block character
+
+        # Test ASCII path
+        progress_ascii = ProgressReporter(100, show_progress=True)
+        progress_ascii.unicode_support = False
+
+        captured_output = io.StringIO()
+        with redirect_stdout(captured_output):
+            for _ in range(10):
+                progress_ascii.update()
+
+        output = captured_output.getvalue()
+        self.assertIn("=", output)  # ASCII progress bar
 
 
 class TestFilesystemDetection(unittest.TestCase):

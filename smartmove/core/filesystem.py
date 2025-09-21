@@ -14,6 +14,8 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+from smartmove.utils import ProgressReporter
+
 logger = logging.getLogger(__name__)
 
 
@@ -28,6 +30,7 @@ class CrossFilesystemMover:
         quiet=False,
         dir_manager=None,
         comprehensive_scan=False,
+        show_progress=True,
     ):
         self.source_path = source_path
         self.dest_path = dest_path
@@ -35,6 +38,8 @@ class CrossFilesystemMover:
         self.quiet = quiet
         self.dir_manager = dir_manager
         self.comprehensive_scan = comprehensive_scan
+        self.show_progress = show_progress
+        self.verbose_mode = logging.getLogger().getEffectiveLevel() <= logging.INFO
         self.moved_inodes = set()
         self.inode_link_counts = {}
 
@@ -125,7 +130,8 @@ class CrossFilesystemMover:
 
     def _print_action(self, message):
         """Print action with timestamp unless quiet mode"""
-        if not self.quiet:
+        # Log actions when verbose or progress disabled to avoid output conflicts
+        if not self.quiet and (self.verbose_mode or not self.show_progress):
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S,%f")[:-3]
             print(f"{timestamp} - {message}")
 
@@ -466,11 +472,18 @@ class CrossFilesystemMover:
         return self.move_hardlink_group(self.source_path, self.dest_path)
 
     def move_directory(self):
-        """Move directory structure with hardlink preservation"""
+        """Move directory structure with hardlink preservation and progress"""
         scan_mode = "comprehensive" if self.comprehensive_scan else "optimized"
         logger.info(
             f"Moving directory ({scan_mode} scan): {self.source_path} → {self.dest_path}"
         )
+
+        # Setup progress - show unless explicitly disabled or quiet
+        total_files = (
+            self._get_total_file_count() if self.show_progress and not self.quiet else 0
+        )
+        show_progress_actual = self.show_progress and not self.verbose_mode
+        progress = ProgressReporter(total_files, self.quiet, show_progress_actual)
 
         files_processed = 0
         for root, dirs, files in os.walk(self.source_path):
@@ -486,6 +499,7 @@ class CrossFilesystemMover:
 
                 if self.move_hardlink_group(source_file, dest_file):
                     files_processed += 1
+                    progress.update()
 
         # Clean up empty directories
         if not self.dry_run:
@@ -519,3 +533,19 @@ class CrossFilesystemMover:
                     self._print_action(f"{action}: {root_path}")
         except OSError as e:
             logger.debug(f"Directory cleanup issue: {e}")
+
+    def _get_total_file_count(self):
+        """Get total file count for progress reporting"""
+        if self.source_path.is_file():
+            return 1
+        try:
+            result = subprocess.run(
+                ["find", str(self.source_path), "-type", "f", "-print0"],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=True,
+            )
+            return len([f for f in result.stdout.split("\0") if f.strip()])
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
+            return sum(1 for _ in self.source_path.rglob("*") if _.is_file())

@@ -26,6 +26,7 @@ class FileMover:
         dry_run=False,
         quiet=False,
         comprehensive_scan=False,
+        show_progress=True,
     ):
         self.source_path = Path(source_path)
         self.dest_path = Path(dest_path)
@@ -42,6 +43,7 @@ class FileMover:
         self.quiet = quiet
         self.dir_manager = DirectoryManager(dry_run)
         self.comprehensive_scan = comprehensive_scan
+        self.show_progress = show_progress
 
         if not self.source_path.exists():
             raise ValueError(f"Source does not exist: {source_path}")
@@ -115,6 +117,7 @@ class FileMover:
                 self.quiet,
                 self.dir_manager,
                 self.comprehensive_scan,
+                self.show_progress,
             )
 
             if self.source_path.is_file():

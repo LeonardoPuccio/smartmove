@@ -58,6 +58,9 @@ def main():
     parser.add_argument(
         "-q", "--quiet", action="store_true", help="Suppress output except errors"
     )
+    parser.add_argument(
+        "--no-progress", action="store_true", help="Disable progress display"
+    )
     parser.add_argument("--version", action="version", version="SmartMove 0.1.0")
 
     args = parser.parse_args()
@@ -84,6 +87,7 @@ def main():
             args.dry_run,
             args.quiet,
             args.comprehensive,
+            show_progress=not args.no_progress,
         )
         success = mover.move()
 
