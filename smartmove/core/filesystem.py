@@ -18,6 +18,12 @@ from smartmove.utils import ProgressReporter
 
 logger = logging.getLogger(__name__)
 
+# Filesystems that do not support hardlinks by specification
+_FS_NO_HARDLINKS = {"vfat", "fat", "fat32", "msdos", "exfat"}
+
+# Filesystems that support hardlinks but where full-mount scan is very slow
+_FS_SLOW_SCAN = {"ntfs", "ntfs-3g", "fuse.ntfs-3g"}
+
 
 class CrossFilesystemMover:
     """Handles cross-filesystem moves with hardlink preservation"""
@@ -161,6 +167,22 @@ class CrossFilesystemMover:
             path = parent
         return Path(path)
 
+    def _detect_filesystem_type(self, path: Path) -> str:
+        """Detect filesystem type for the given path using findmnt"""
+        try:
+            result = subprocess.run(
+                ["findmnt", "-no", "FSTYPE", str(path)],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            fstype = result.stdout.strip().lower()
+            if fstype:
+                return fstype
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            pass
+        return "unknown"
+
     def _build_hardlink_index(self):
         """Build memory index of hardlinks using find command"""
         if self.hardlink_index is not None:
@@ -170,6 +192,20 @@ class CrossFilesystemMover:
             logger.info("Hardlink scan disabled via --no-hardlink-scan")
             self.hardlink_index = {}
             return
+
+        fstype = self._detect_filesystem_type(self.source_root)
+        if fstype in _FS_NO_HARDLINKS:
+            logger.info(
+                f"Source filesystem ({fstype}) does not support hardlinks — skipping scan"
+            )
+            self.hardlink_index = {}
+            return
+        if fstype in _FS_SLOW_SCAN:
+            logger.warning(
+                f"Source filesystem ({fstype}) supports hardlinks but full-mount scan may be very slow. "
+                "Use --source-scope to limit scan to the source directory, "
+                "or --no-hardlink-scan to skip detection entirely."
+            )
 
         if self.comprehensive_scan:
             scan_scope = "all mounted filesystems"

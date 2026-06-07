@@ -98,6 +98,14 @@ sudo smv /mnt/ssd/files /mnt/hdd/files  # Hardlinks maintained
 
 **Root cause:** Standard tools either ignore hardlinks outside the moved directory or break them when crossing filesystems. Even `rsync -H` only preserves hardlinks within the transferred file set, missing cross-scope hardlinks.
 
+### Filesystem Auto-Detection
+
+SmartMove automatically detects the source filesystem type before scanning:
+
+- **vfat / fat32 / exfat** — no hardlink support by spec → scan skipped automatically
+- **ntfs** — hardlinks possible but rare; full-mount scan is slow on ntfs-3g → warning shown with suggestions
+- **ext4 / btrfs / xfs / zfs** — full hardlink support → normal scan
+
 ### Scanning Modes
 
 **Default (optimized):** Fast scanning within source mount boundaries using `find -xdev`
