@@ -572,7 +572,9 @@ class CrossFilesystemMover:
             f"Moving directory ({scan_mode} scan): {self.source_path} → {self.dest_path}"
         )
 
-        total_files = self._get_total_file_count() if self.show_progress and not self.quiet else 0
+        total_files = (
+            self._get_total_file_count() if self.show_progress and not self.quiet else 0
+        )
         show_progress_actual = self.show_progress and not self.verbose_mode
         progress = ProgressReporter(total_files, self.quiet, show_progress_actual)
 
