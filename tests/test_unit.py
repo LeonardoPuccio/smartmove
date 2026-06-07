@@ -457,13 +457,18 @@ class TestCrossFilesystemMover(unittest.TestCase):
         mock_result = MagicMock()
         mock_result.stdout = ""
         with patch("subprocess.run", return_value=mock_result) as mock_run:
-            with patch.object(
-                mover, "_detect_filesystem_type", return_value="ext4"
-            ):
+            with patch.object(mover, "_detect_filesystem_type", return_value="ext4"):
                 mover._build_hardlink_index()
         call_args = mock_run.call_args[0][0]
         self.assertIn(str(self.source_dir), call_args)
-        self.assertNotIn(str(mover.source_root), call_args[: call_args.index(str(self.source_dir))] if str(mover.source_root) != str(self.source_dir) else [])
+        self.assertNotIn(
+            str(mover.source_root),
+            (
+                call_args[: call_args.index(str(self.source_dir))]
+                if str(mover.source_root) != str(self.source_dir)
+                else []
+            ),
+        )
 
     def test_fs_no_hardlinks_skips_scan(self):
         """Test that filesystems without hardlink support skip scan automatically"""
@@ -493,8 +498,9 @@ class TestCrossFilesystemMover(unittest.TestCase):
         mock_result.stdout = ""
         with patch.object(mover, "_detect_filesystem_type", return_value="ntfs"):
             with patch("subprocess.run", return_value=mock_result):
-                import logging
-                with self.assertLogs("smartmove.core.filesystem", level="WARNING") as log:
+                with self.assertLogs(
+                    "smartmove.core.filesystem", level="WARNING"
+                ) as log:
                     mover._build_hardlink_index()
         self.assertTrue(any("ntfs" in msg.lower() for msg in log.output))
 
