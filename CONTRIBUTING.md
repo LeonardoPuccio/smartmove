@@ -9,7 +9,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 # Setup environment and install all dev dependencies
 uv sync --extra dev
 
-# Install pre-commit hooks
+# Install pre-commit hooks (for local git commit validation)
 uv run pre-commit install
 
 # Install globally for sudo access
@@ -67,7 +67,8 @@ sudo RUN_LARGE_SCALE_TESTS=1 .venv/bin/python3 -m pytest tests/test_e2e.py::Test
 - **Formatting**: Black + isort
 - **Linting**: Ruff + Black compliance checks
 - **Coverage**: Minimum 80% line coverage, aiming for 90%+
-- **Pre-commit**: Automatic formatting and linting on commit
+- **Pre-commit**: Automatic formatting and linting on local commits
+- **CI**: Runs ruff, black, isort directly via `uv run` (no pre-commit in CI)
 
 ## Architecture
 
