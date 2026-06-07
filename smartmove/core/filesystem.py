@@ -168,15 +168,32 @@ class CrossFilesystemMover:
         return Path(path)
 
     def _detect_filesystem_type(self, path: Path) -> str:
-        """Detect filesystem type for the given path using findmnt"""
+        """Detect filesystem type for the given path using findmnt with blkid fallback for fuseblk"""
         try:
             result = subprocess.run(
-                ["findmnt", "-no", "FSTYPE", str(path)],
+                ["findmnt", "-no", "FSTYPE,SOURCE", str(path)],
                 capture_output=True,
                 text=True,
                 timeout=5,
             )
-            fstype = result.stdout.strip().lower()
+            parts = result.stdout.strip().split(None, 1)
+            if not parts:
+                return "unknown"
+            fstype = parts[0].lower()
+            if fstype == "fuseblk" and len(parts) == 2:
+                source = parts[1].strip()
+                try:
+                    blkid_result = subprocess.run(
+                        ["blkid", "-o", "value", "-s", "TYPE", source],
+                        capture_output=True,
+                        text=True,
+                        timeout=5,
+                    )
+                    real_type = blkid_result.stdout.strip().lower()
+                    if real_type:
+                        return real_type
+                except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+                    pass
             if fstype:
                 return fstype
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
