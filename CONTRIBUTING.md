@@ -3,10 +3,14 @@
 ## Development Setup
 
 ```bash
-# Setup environment
-python3 -m venv .venv
-source .venv/bin/activate
-make install-dev
+# Install uv (if not already installed)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Setup environment and install all dev dependencies
+uv sync --extra dev
+
+# Install pre-commit hooks
+uv run pre-commit install
 
 # Install globally for sudo access
 pipx install -e .
@@ -14,6 +18,7 @@ sudo ln -sf ~/.local/bin/smv /usr/local/bin/smv
 ```
 
 The editable install (`-e`) ensures code changes take effect immediately without reinstalling.
+Dependencies are locked in `uv.lock` for reproducible installs.
 
 ## Development Workflow
 
@@ -54,7 +59,7 @@ sudo make test-performance  # Large-scale performance tests
 
 Large-scale performance tests:
 ```bash
-sudo RUN_LARGE_SCALE_TESTS=1 .venv/bin/python3 -m pytest tests/test_e2e.py -v
+sudo RUN_LARGE_SCALE_TESTS=1 .venv/bin/python3 -m pytest tests/test_e2e.py::TestLargeScalePerformance -v
 ```
 
 ## Code Quality
