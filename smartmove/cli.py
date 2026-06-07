@@ -70,7 +70,7 @@ def main():
         action="store_true",
         help="Limit hardlink scan to source directory only (faster, misses cross-scope hardlinks)",
     )
-    parser.add_argument("--version", action="version", version="SmartMove 0.2.0")
+    parser.add_argument("--version", action="version", version="SmartMove 0.3.0")
 
     args = parser.parse_args()
 
