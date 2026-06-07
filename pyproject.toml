@@ -41,9 +41,6 @@ smv = "smartmove.cli:main"
 [tool.setuptools]
 packages = ["smartmove", "smartmove.core", "smartmove.utils"]
 
-[tool.uv.extra-build-dependencies]
-smartmove = ["setuptools", "wheel"]
-
 [tool.black]
 target-version = ["py310", "py311", "py312"]
 

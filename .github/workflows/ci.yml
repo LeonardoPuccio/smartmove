@@ -23,7 +23,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install dependencies
-        run: uv sync --extra dev --no-build-isolation
+        run: uv sync --extra dev --frozen
       - name: Run ruff
         run: uv run ruff check .
       - name: Run black
@@ -44,7 +44,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install dependencies
-        run: uv sync --extra dev --no-build-isolation
+        run: uv sync --extra dev --frozen
       - name: Run tests + coverage
         run: uv run pytest tests/test_unit.py tests/test_integration.py tests/test_cli.py --cov=. --cov-report=xml --cov-report=html --junitxml=test-results.xml -v
       - name: Upload coverage reports
