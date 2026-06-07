@@ -13,7 +13,6 @@ Usage:
 
 import argparse
 import logging
-import os
 import sys
 
 from smartmove.core import FileMover
@@ -74,10 +73,6 @@ def main():
         logging.getLogger().setLevel(logging.INFO)
     else:
         logging.getLogger().setLevel(logging.ERROR)
-
-    if os.geteuid() != 0:
-        logger.error("Root privileges required for file ownership preservation")
-        sys.exit(1)
 
     try:
         mover = FileMover(
