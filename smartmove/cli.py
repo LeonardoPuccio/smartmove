@@ -65,6 +65,11 @@ def main():
         action="store_true",
         help="Skip hardlink detection (use on slow/incompatible filesystems like NTFS)",
     )
+    parser.add_argument(
+        "--source-scope",
+        action="store_true",
+        help="Limit hardlink scan to source directory only (faster, misses cross-scope hardlinks)",
+    )
     parser.add_argument("--version", action="version", version="SmartMove 0.2.0")
 
     args = parser.parse_args()
@@ -89,6 +94,7 @@ def main():
             args.comprehensive,
             show_progress=not args.no_progress,
             no_hardlink_scan=args.no_hardlink_scan,
+            source_scope=args.source_scope,
         )
         success = mover.move()
 

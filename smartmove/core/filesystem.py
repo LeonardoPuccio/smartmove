@@ -32,6 +32,7 @@ class CrossFilesystemMover:
         comprehensive_scan=False,
         show_progress=True,
         no_hardlink_scan=False,
+        source_scope=False,
     ):
         self.source_path = source_path
         self.dest_path = dest_path
@@ -41,6 +42,7 @@ class CrossFilesystemMover:
         self.comprehensive_scan = comprehensive_scan
         self.show_progress = show_progress
         self.no_hardlink_scan = no_hardlink_scan
+        self.source_scope = source_scope
         self.verbose_mode = logging.getLogger().getEffectiveLevel() <= logging.INFO
         self.moved_inodes = set()
         self.inode_link_counts = {}
@@ -60,7 +62,12 @@ class CrossFilesystemMover:
         self._validate_permissions()
         self._validate_space()
 
-        scan_type = "comprehensive" if comprehensive_scan else "source-filesystem-only"
+        if comprehensive_scan:
+            scan_type = "comprehensive"
+        elif source_scope:
+            scan_type = "source-scope"
+        else:
+            scan_type = "source-filesystem-only"
         logger.debug(
             f"Source mount point: {self.source_root}, Dest mount point: {self.dest_root}, scan mode: {scan_type}"
         )
@@ -164,18 +171,17 @@ class CrossFilesystemMover:
             self.hardlink_index = {}
             return
 
-        scan_scope = (
-            "all mounted filesystems"
-            if self.comprehensive_scan
-            else f"filesystem {self.source_root}"
-        )
+        if self.comprehensive_scan:
+            scan_scope = "all mounted filesystems"
+        elif self.source_scope:
+            scan_scope = f"source directory {self.source_path}"
+        else:
+            scan_scope = f"filesystem {self.source_root}"
         logger.debug(f"Building hardlink index for {scan_scope}")
         self.hardlink_index = {}
 
         try:
-            # Choose command based on comprehensive_scan flag
             if self.comprehensive_scan:
-                # Scan all mounted filesystems (slower but comprehensive)
                 cmd = [
                     "find",
                     str(self.source_root),
@@ -189,8 +195,21 @@ class CrossFilesystemMover:
                 logger.info(
                     "Using comprehensive scan - may take longer but finds hardlinks across all filesystems"
                 )
+            elif self.source_scope:
+                cmd = [
+                    "find",
+                    str(self.source_path),
+                    "-type",
+                    "f",
+                    "-links",
+                    "+1",
+                    "-printf",
+                    "%i %p\n",
+                ]
+                logger.info(
+                    "Using source-scope scan - only detects hardlinks within source directory"
+                )
             else:
-                # Default: scan only source filesystem (faster)
                 cmd = [
                     "find",
                     str(self.source_root),
@@ -240,13 +259,17 @@ class CrossFilesystemMover:
             )
 
         except subprocess.TimeoutExpired:
-            scan_type = (
-                "comprehensive" if self.comprehensive_scan else "source-filesystem-only"
-            )
+            if self.comprehensive_scan:
+                scan_type = "comprehensive"
+            elif self.source_scope:
+                scan_type = "source-scope"
+            else:
+                scan_type = "source-filesystem-only"
             raise RuntimeError(
                 f"Hardlink detection timed out ({scan_type} scan). "
                 "This can happen on slow or incompatible filesystems (e.g. NTFS). "
-                "If hardlink preservation is not needed, retry with --no-hardlink-scan."
+                "Retry with --source-scope to limit scan to the source directory, "
+                "or --no-hardlink-scan to skip hardlink detection entirely."
             )
         except (subprocess.CalledProcessError, OSError) as e:
             scan_type = (

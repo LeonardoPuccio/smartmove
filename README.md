@@ -43,7 +43,8 @@ sudo smv "/mnt/mergefs/dataset" "/mnt/archive" --comprehensive --verbose
 - `--debug` - Enable debug logging (requires --verbose)
 - `-q, --quiet` - Suppress output except errors
 - `--no-progress` - Disable progress display
-- `--no-hardlink-scan` - Skip hardlink detection (use on slow/incompatible filesystems like NTFS)
+- `--source-scope` - Limit hardlink scan to source directory (faster, misses cross-scope hardlinks)
+- `--no-hardlink-scan` - Skip hardlink detection entirely (use on slow/incompatible filesystems like NTFS)
 - `--version` - Show version information
 
 ## Progress Display
