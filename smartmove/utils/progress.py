@@ -66,7 +66,7 @@ class ProgressReporter:
 
         return rate_str, eta_str
 
-    def update(self, current_file=None):
+    def update(self):
         self.processed_files += 1
 
         if not self.show_progress:

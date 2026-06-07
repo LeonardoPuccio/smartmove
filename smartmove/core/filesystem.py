@@ -24,6 +24,8 @@ _FS_NO_HARDLINKS = {"vfat", "fat", "fat32", "msdos", "exfat"}
 # Filesystems that support hardlinks but where full-mount scan is very slow
 _FS_SLOW_SCAN = {"ntfs", "ntfs-3g", "fuse.ntfs-3g"}
 
+_FIND_PRINTF_FORMAT = "%i %p\n"
+
 
 class CrossFilesystemMover:
     """Handles cross-filesystem moves with hardlink preservation"""
@@ -192,11 +194,11 @@ class CrossFilesystemMover:
                     real_type = blkid_result.stdout.strip().lower()
                     if real_type:
                         return real_type
-                except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+                except (subprocess.TimeoutExpired, OSError):
                     pass
             if fstype:
                 return fstype
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        except (subprocess.TimeoutExpired, OSError):
             pass
         return "unknown"
 
@@ -243,7 +245,7 @@ class CrossFilesystemMover:
                     "-links",
                     "+1",
                     "-printf",
-                    "%i %p\n",
+                    _FIND_PRINTF_FORMAT,
                 ]
                 logger.info(
                     "Using comprehensive scan - may take longer but finds hardlinks across all filesystems"
@@ -257,7 +259,7 @@ class CrossFilesystemMover:
                     "-links",
                     "+1",
                     "-printf",
-                    "%i %p\n",
+                    _FIND_PRINTF_FORMAT,
                 ]
                 logger.info(
                     "Using source-scope scan - only detects hardlinks within source directory"
@@ -272,7 +274,7 @@ class CrossFilesystemMover:
                     "-links",
                     "+1",
                     "-printf",
-                    "%i %p\n",
+                    _FIND_PRINTF_FORMAT,
                 ]
                 logger.debug(
                     "Using source-filesystem-only scan for optimal performance"
@@ -570,34 +572,35 @@ class CrossFilesystemMover:
             f"Moving directory ({scan_mode} scan): {self.source_path} → {self.dest_path}"
         )
 
-        # Setup progress - show unless explicitly disabled or quiet
-        total_files = (
-            self._get_total_file_count() if self.show_progress and not self.quiet else 0
-        )
+        total_files = self._get_total_file_count() if self.show_progress and not self.quiet else 0
         show_progress_actual = self.show_progress and not self.verbose_mode
         progress = ProgressReporter(total_files, self.quiet, show_progress_actual)
 
+        files_processed = self._walk_and_move(progress)
+
+        if not self.dry_run:
+            self._remove_empty_dirs()
+
+        self._log_directory_completion(files_processed)
+        return True
+
+    def _walk_and_move(self, progress: ProgressReporter) -> int:
+        """Walk source directory and move each file, returning count of moved files"""
         files_processed = 0
         for root, dirs, files in os.walk(self.source_path):
             for file_name in files:
                 source_file = Path(root) / file_name
-
-                # Skip if file already processed (removed as part of hardlink group)
+                # File may have already been removed as part of a hardlink group
                 if not source_file.exists():
                     continue
-
                 rel_path = source_file.relative_to(self.source_path)
                 dest_file = self.dest_path / rel_path
-
                 if self.move_hardlink_group(source_file, dest_file):
                     files_processed += 1
                     progress.update()
+        return files_processed
 
-        # Clean up empty directories
-        if not self.dry_run:
-            self._remove_empty_dirs()
-
-        # Count only actual hardlink groups (original link count > 1)
+    def _log_directory_completion(self, files_processed: int) -> None:
         hardlink_groups = sum(
             1 for inode, count in self.inode_link_counts.items() if count > 1
         )
@@ -608,7 +611,6 @@ class CrossFilesystemMover:
             )
         else:
             logger.info(f"{message}: {files_processed} files processed")
-        return True
 
     def _remove_empty_dirs(self):
         """Remove empty directories bottom-up"""
