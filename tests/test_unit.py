@@ -427,7 +427,107 @@ class TestCrossFilesystemMover(unittest.TestCase):
             with self.assertRaises(RuntimeError) as context:
                 mover._build_hardlink_index()
 
-            self.assertIn("Hardlink detection failed", str(context.exception))
+            self.assertIn("Hardlink detection timed out", str(context.exception))
+
+    def test_no_hardlink_scan_skips_find(self):
+        """Test that --no-hardlink-scan skips find entirely"""
+        mover = CrossFilesystemMover(
+            self.source_dir,
+            self.dest_dir,
+            dry_run=True,
+            quiet=True,
+            dir_manager=DirectoryManager(),
+            no_hardlink_scan=True,
+        )
+        with patch("subprocess.run") as mock_run:
+            mover._build_hardlink_index()
+            mock_run.assert_not_called()
+        self.assertEqual(mover.hardlink_index, {})
+
+    def test_source_scope_uses_source_path(self):
+        """Test that --source-scope passes source_path (not source_root) to find"""
+        mover = CrossFilesystemMover(
+            self.source_dir,
+            self.dest_dir,
+            dry_run=True,
+            quiet=True,
+            dir_manager=DirectoryManager(),
+            source_scope=True,
+        )
+        mock_result = MagicMock()
+        mock_result.stdout = ""
+        with patch("subprocess.run", return_value=mock_result) as mock_run:
+            with patch.object(
+                mover, "_detect_filesystem_type", return_value="ext4"
+            ):
+                mover._build_hardlink_index()
+        call_args = mock_run.call_args[0][0]
+        self.assertIn(str(self.source_dir), call_args)
+        self.assertNotIn(str(mover.source_root), call_args[: call_args.index(str(self.source_dir))] if str(mover.source_root) != str(self.source_dir) else [])
+
+    def test_fs_no_hardlinks_skips_scan(self):
+        """Test that filesystems without hardlink support skip scan automatically"""
+        mover = CrossFilesystemMover(
+            self.source_dir,
+            self.dest_dir,
+            dry_run=True,
+            quiet=True,
+            dir_manager=DirectoryManager(),
+        )
+        with patch.object(mover, "_detect_filesystem_type", return_value="vfat"):
+            with patch("subprocess.run") as mock_run:
+                mover._build_hardlink_index()
+                mock_run.assert_not_called()
+        self.assertEqual(mover.hardlink_index, {})
+
+    def test_fs_slow_scan_emits_warning(self):
+        """Test that NTFS filesystem emits a warning before scanning"""
+        mover = CrossFilesystemMover(
+            self.source_dir,
+            self.dest_dir,
+            dry_run=True,
+            quiet=True,
+            dir_manager=DirectoryManager(),
+        )
+        mock_result = MagicMock()
+        mock_result.stdout = ""
+        with patch.object(mover, "_detect_filesystem_type", return_value="ntfs"):
+            with patch("subprocess.run", return_value=mock_result):
+                import logging
+                with self.assertLogs("smartmove.core.filesystem", level="WARNING") as log:
+                    mover._build_hardlink_index()
+        self.assertTrue(any("ntfs" in msg.lower() for msg in log.output))
+
+    def test_detect_filesystem_type_fuseblk_falls_back_to_blkid(self):
+        """Test that fuseblk type triggers blkid lookup for real filesystem type"""
+        mover = CrossFilesystemMover(
+            self.source_dir,
+            self.dest_dir,
+            dry_run=True,
+            quiet=True,
+            dir_manager=DirectoryManager(),
+        )
+        findmnt_result = MagicMock()
+        findmnt_result.stdout = "fuseblk /dev/sdc1\n"
+        blkid_result = MagicMock()
+        blkid_result.stdout = "ntfs\n"
+
+        with patch("subprocess.run", side_effect=[findmnt_result, blkid_result]):
+            fstype = mover._detect_filesystem_type(self.source_dir)
+        self.assertEqual(fstype, "ntfs")
+
+    def test_detect_filesystem_type_unknown_on_error(self):
+        """Test that filesystem detection returns 'unknown' on error"""
+        mover = CrossFilesystemMover(
+            self.source_dir,
+            self.dest_dir,
+            dry_run=True,
+            quiet=True,
+            dir_manager=DirectoryManager(),
+        )
+        with patch("subprocess.run", side_effect=FileNotFoundError):
+            fstype = mover._detect_filesystem_type(self.source_dir)
+        self.assertEqual(fstype, "unknown")
 
     def test_move_hardlink_group_skips_processed_inodes(self):
         """Test that already processed inodes are skipped"""

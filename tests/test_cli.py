@@ -246,16 +246,19 @@ class TestSmartMoveCLI(unittest.TestCase):
                     self.assertTrue(call_args[0][4])  # quiet parameter
 
     def test_main_function_non_root_user(self):
-        """Test main function exits for non-root users"""
+        """Test main function works without root privileges"""
 
         test_args = ["smartmove.py", str(self.source_file), str(self.dest_file)]
 
         with patch.object(sys, "argv", test_args):
-            with patch("os.geteuid", return_value=1000):  # Non-root
-                with self.assertRaises(SystemExit) as context:
-                    cli.main()
+            with patch("smartmove.cli.FileMover") as mock_mover:
+                mock_instance = mock_mover.return_value
+                mock_instance.move.return_value = True
 
-                self.assertEqual(context.exception.code, 1)
+                try:
+                    cli.main()
+                except SystemExit as e:
+                    self.assertEqual(e.code, 0)
 
     def test_main_function_move_failure(self):
         """Test main function handles move failure"""
@@ -471,20 +474,19 @@ class TestSmartMoveCLI(unittest.TestCase):
             self.assertIn("Cannot check destination space", str(context.exception))
 
     def test_main_function_permission_error_message(self):
-        """Test improved permission error message"""
+        """Test that PermissionError from FileMover causes exit code 1"""
 
         test_args = ["smartmove.py", str(self.source_file), str(self.dest_file)]
 
         with patch.object(sys, "argv", test_args):
-            with patch("os.geteuid", return_value=1000):  # Non-root
-                with patch(
-                    "smartmove.FileMover",
-                    side_effect=PermissionError("Permission denied"),
-                ):
-                    with self.assertRaises(SystemExit) as context:
-                        cli.main()
+            with patch(
+                "smartmove.cli.FileMover",
+                side_effect=PermissionError("Permission denied"),
+            ):
+                with self.assertRaises(SystemExit) as context:
+                    cli.main()
 
-                    self.assertEqual(context.exception.code, 1)
+                self.assertEqual(context.exception.code, 1)
 
     def test_version_flag(self):
         """Test --version flag"""
