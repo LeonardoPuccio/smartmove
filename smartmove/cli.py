@@ -60,6 +60,11 @@ def main():
     parser.add_argument(
         "--no-progress", action="store_true", help="Disable progress display"
     )
+    parser.add_argument(
+        "--no-hardlink-scan",
+        action="store_true",
+        help="Skip hardlink detection (use on slow/incompatible filesystems like NTFS)",
+    )
     parser.add_argument("--version", action="version", version="SmartMove 0.2.0")
 
     args = parser.parse_args()
@@ -83,6 +88,7 @@ def main():
             args.quiet,
             args.comprehensive,
             show_progress=not args.no_progress,
+            no_hardlink_scan=args.no_hardlink_scan,
         )
         success = mover.move()
 

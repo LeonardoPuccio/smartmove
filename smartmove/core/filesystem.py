@@ -31,6 +31,7 @@ class CrossFilesystemMover:
         dir_manager=None,
         comprehensive_scan=False,
         show_progress=True,
+        no_hardlink_scan=False,
     ):
         self.source_path = source_path
         self.dest_path = dest_path
@@ -39,6 +40,7 @@ class CrossFilesystemMover:
         self.dir_manager = dir_manager
         self.comprehensive_scan = comprehensive_scan
         self.show_progress = show_progress
+        self.no_hardlink_scan = no_hardlink_scan
         self.verbose_mode = logging.getLogger().getEffectiveLevel() <= logging.INFO
         self.moved_inodes = set()
         self.inode_link_counts = {}
@@ -157,6 +159,11 @@ class CrossFilesystemMover:
         if self.hardlink_index is not None:
             return
 
+        if self.no_hardlink_scan:
+            logger.info("Hardlink scan disabled via --no-hardlink-scan")
+            self.hardlink_index = {}
+            return
+
         scan_scope = (
             "all mounted filesystems"
             if self.comprehensive_scan
@@ -232,7 +239,16 @@ class CrossFilesystemMover:
                 f"Indexed {hardlink_groups} hardlink groups ({total_hardlinked_files} files) {scope_desc}"
             )
 
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as e:
+        except subprocess.TimeoutExpired:
+            scan_type = (
+                "comprehensive" if self.comprehensive_scan else "source-filesystem-only"
+            )
+            raise RuntimeError(
+                f"Hardlink detection timed out ({scan_type} scan). "
+                "This can happen on slow or incompatible filesystems (e.g. NTFS). "
+                "If hardlink preservation is not needed, retry with --no-hardlink-scan."
+            )
+        except (subprocess.CalledProcessError, OSError) as e:
             scan_type = (
                 "comprehensive" if self.comprehensive_scan else "source-filesystem-only"
             )
